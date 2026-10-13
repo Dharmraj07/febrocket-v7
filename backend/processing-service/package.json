@@ -1,0 +1,21 @@
+{
+  "name": "processing-service",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Asynchronous document processing workers",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@google/genai": "^2.22.0",
+    "axios": "^1.20.0",
+    "bullmq": "^6.3.6",
+    "dotenv": "^17.4.2",
+    "ioredis": "^6.0.0",
+    "openai": "^7.15.0",
+    "pdf-to-img": "^7.0.0",
+    "sharp": "^0.34.5"
+  }
+}
