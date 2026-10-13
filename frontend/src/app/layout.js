@@ -14,8 +14,9 @@ const geistMono = Geist_Mono({
 
 export const metadata = {
   metadataBase: new URL("https://febrocket.com"),
-  title: "FebRocket | Your documents, together",
-  description: "Keep your important documents organized in one place and make paperwork easier.",
+  title: "FebRocket | Your Documents, Ready for Every Form",
+  description:
+    "Upload your documents once. AI extracts and organizes your information to help you fill repetitive online forms faster.",
 };
 
 export default function RootLayout({ children }) {

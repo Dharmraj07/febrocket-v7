@@ -7,16 +7,18 @@ import { useRouter } from "next/navigation";
 import { useDispatch, useSelector } from "react-redux";
 import {
   ArrowRight,
+  BadgeCheck,
   Check,
-  Clock3,
+  ChevronRight,
+  ClipboardCheck,
   FileText,
   FolderOpen,
-  Keyboard,
+  LockKeyhole,
   Menu,
-  Search,
-  ShieldCheck,
+  PanelTop,
   Sparkles,
   Upload,
+  UserRound,
   X,
 } from "lucide-react";
 import { checkAuthSession, selectAuth } from "@/features/auth/authSlice";
@@ -30,20 +32,62 @@ const steps = [
   {
     number: "01",
     icon: Upload,
-    title: "Upload your documents",
-    description: "Add the PDFs and images you already use for paperwork.",
+    title: "Upload",
+    description: "Add the personal documents you already use for paperwork.",
+    example: "Identity card.pdf",
+    exampleIcon: FileText,
   },
   {
     number: "02",
-    icon: FolderOpen,
-    title: "FebRocket keeps them together",
-    description: "Your documents stay organized in one place in your account.",
+    icon: Sparkles,
+    title: "Extract",
+    description: "AI reads your documents and pulls out useful details.",
+    example: "Name · Date of birth · Address",
+    exampleIcon: ClipboardCheck,
   },
   {
     number: "03",
-    icon: Search,
-    title: "Find them when you need them",
-    description: "Open your saved documents again when paperwork comes up.",
+    icon: FolderOpen,
+    title: "Organize",
+    description: "Keep documents and extracted information in your library.",
+    example: "Personal · 3 documents",
+    exampleIcon: UserRound,
+  },
+  {
+    number: "04",
+    icon: PanelTop,
+    title: "Autofill",
+    description: "Use the upcoming extension to match, review, and fill website forms.",
+    example: "3 form fields matched",
+    exampleIcon: Check,
+  },
+];
+
+const features = [
+  {
+    icon: FolderOpen,
+    title: "Document storage",
+    description: "Keep the files you choose to upload together in your account.",
+  },
+  {
+    icon: Sparkles,
+    title: "AI information extraction",
+    description: "Turn document contents into details you can find and reuse.",
+  },
+  {
+    icon: UserRound,
+    title: "People-based library",
+    description: "Group documents and extracted information by person.",
+  },
+  {
+    icon: PanelTop,
+    title: "Browser extension · Coming soon",
+    description: "Find matches for website fields and fill the details you select.",
+  },
+  {
+    icon: FileText,
+    title: "Document matching",
+    description: "Match relevant saved documents to form fields that request an upload.",
   },
 ];
 
@@ -117,7 +161,7 @@ export default function Home() {
   };
 
   const closeMenu = () => setMenuOpen(false);
-  const ctaLabel = isLoading || !authChecked ? "Checking your account…" : "Get Started Free";
+  const ctaLabel = isLoading || !authChecked ? "Checking your account…" : "Get Started";
 
   return (
     <main className="min-h-screen overflow-x-clip bg-white text-slate-950">
@@ -229,110 +273,70 @@ export default function Home() {
         ) : null}
       </header>
 
-      <section className="mx-auto grid max-w-7xl items-center gap-12 px-4 py-14 sm:px-6 sm:py-20 lg:grid-cols-2 lg:gap-16 lg:px-8 lg:py-24">
-        <div className="max-w-2xl">
-          <p className="mb-5 text-sm font-semibold tracking-wide text-blue-700">
-            A simpler place for your paperwork
-          </p>
-          <h1 className="text-[2.65rem] font-semibold leading-[1.07] tracking-[-0.045em] text-slate-950 sm:text-6xl lg:text-[4.25rem]">
-            Your documents.
-            <br className="hidden sm:block" /> Ready when you need them.
-          </h1>
-          <p className="mt-6 max-w-xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
-            Keep your important documents organized in one place and make
-            paperwork easier.
-          </p>
-          <button
-            type="button"
-            onClick={startFree}
-            disabled={isLoading || !authChecked}
-            className="mt-8 inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-xl bg-[#2878f0] px-6 text-base font-semibold text-white shadow-sm transition hover:bg-[#1e63d6] focus-visible:outline-offset-4 disabled:cursor-wait disabled:opacity-60 sm:w-auto sm:min-w-52"
-          >
-            {ctaLabel}
-            {!isLoading && authChecked ? <ArrowRight size={18} aria-hidden="true" /> : null}
-          </button>
-          <p className="mt-3 text-sm text-slate-500">
-            Create your free account with Google.
-          </p>
-          <p className="mt-6 inline-flex items-center gap-2 text-sm text-slate-600">
-            <ShieldCheck size={17} className="text-slate-500" aria-hidden="true" />
-            Read our <Link href="/privacy" className="font-medium text-blue-700 underline decoration-blue-200 underline-offset-4 hover:text-blue-800">privacy details</Link>.
-          </p>
-        </div>
-
-        <DocumentPreviewIllustration />
-      </section>
-
-      <section
-        id="browser-extension"
-        aria-labelledby="extension-title"
-        className="scroll-mt-20 border-y border-slate-100 bg-slate-50/70 px-4 py-16 sm:px-6 sm:py-20 lg:px-8"
-      >
-        <div className="mx-auto grid max-w-6xl items-center gap-10 lg:grid-cols-[0.9fr_1.1fr] lg:gap-16">
-          <div>
-            <p className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-800">
+      <section className="relative isolate overflow-hidden bg-gradient-to-br from-blue-50/80 via-white to-indigo-50/50 px-4 pb-16 pt-14 sm:px-6 sm:pb-20 sm:pt-20 lg:px-8 lg:pb-24 lg:pt-24">
+        <div className="pointer-events-none absolute -right-32 -top-36 -z-10 h-96 w-96 rounded-full bg-blue-100/50 blur-3xl" />
+        <div className="mx-auto max-w-7xl">
+          <div className="mx-auto max-w-3xl text-center">
+            <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-blue-100 bg-white/80 px-3 py-1.5 text-sm font-medium text-blue-800">
               <Sparkles size={15} aria-hidden="true" />
-              Coming Soon
+              Documents in. Busywork out.
             </p>
-            <h2
-              id="extension-title"
-              className="mt-5 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl"
-            >
-              Let AI handle the repetitive parts of forms.
-            </h2>
-            <p className="mt-4 max-w-xl text-base leading-7 text-slate-600">
-              The upcoming FebRocket browser extension will detect form fields,
-              match them with information you have saved, and help fill them
-              automatically. Review the matches and choose what to fill—you&apos;re
-              always in control.
+            <h1 className="text-[2.6rem] font-semibold leading-[1.06] tracking-[-0.045em] text-slate-950 sm:text-6xl lg:text-7xl">
+              Your Documents.
+              <br className="hidden sm:block" /> Ready for Every Form.
+            </h1>
+            <p className="mx-auto mt-6 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
+              Upload your documents once. AI extracts and organizes your
+              information, and FebRocket helps fill repetitive online forms
+              faster.
             </p>
-
-            <ul className="mt-7 grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-              <li className="flex items-center gap-3 text-sm font-medium text-slate-700">
-                <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-blue-700 ring-1 ring-slate-200">
-                  <Keyboard size={17} aria-hidden="true" />
-                </span>
-                Less repetitive typing
-              </li>
-              <li className="flex items-center gap-3 text-sm font-medium text-slate-700">
-                <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-blue-700 ring-1 ring-slate-200">
-                  <Clock3 size={17} aria-hidden="true" />
-                </span>
-                Faster form completion
-              </li>
-              <li className="flex items-center gap-3 text-sm font-medium text-slate-700">
-                <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-blue-700 ring-1 ring-slate-200">
-                  <ShieldCheck size={17} aria-hidden="true" />
-                </span>
-                You choose what gets filled
-              </li>
-            </ul>
+            <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+              <button
+                type="button"
+                onClick={startFree}
+                disabled={isLoading || !authChecked}
+                className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#2878f0] px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1e63d6] focus-visible:outline-offset-4 disabled:cursor-wait disabled:opacity-60 sm:w-auto"
+              >
+                {ctaLabel}
+                {!isLoading && authChecked ? <ArrowRight size={17} aria-hidden="true" /> : null}
+              </button>
+              <a
+                href="#how-it-works"
+                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-6 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-offset-4"
+              >
+                See How It Works
+                <ChevronRight size={17} aria-hidden="true" />
+              </a>
+            </div>
           </div>
 
-          <ExtensionFormPreview />
+          <div className="mt-12 sm:mt-16 lg:mt-20">
+            <ProductWorkflowPreview />
+          </div>
         </div>
       </section>
 
       <section
         id="how-it-works"
-        className="scroll-mt-20 border-y border-slate-100 bg-slate-50/70 px-4 py-16 sm:px-6 sm:py-20 lg:px-8"
+        aria-labelledby="how-it-works-title"
+        className="scroll-mt-20 border-y border-slate-100 bg-white px-4 py-16 sm:px-6 sm:py-20 lg:px-8"
       >
-        <div className="mx-auto max-w-6xl">
-          <div className="max-w-2xl">
+        <div className="mx-auto max-w-7xl">
+          <div className="mx-auto max-w-2xl text-center">
             <p className="text-sm font-semibold text-blue-700">HOW IT WORKS</p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
-              Paperwork, a little simpler.
+            <h2 id="how-it-works-title" className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
+              From documents to done, in four steps.
             </h2>
             <p className="mt-4 text-base leading-7 text-slate-600">
-              Add your files once. Keep them together. Come back when you need them.
+              Build a personal library once, then use the information when forms come up.
             </p>
           </div>
 
-          <ol className="mt-10 grid gap-4 sm:mt-12 sm:grid-cols-3 sm:gap-5">
-            {steps.map(({ number, icon: Icon, title, description }) => (
+          <ol className="mt-10 grid gap-4 sm:mt-12 sm:grid-cols-2 lg:grid-cols-4">
+            {steps.map(({ number, icon: Icon, title, description, example, exampleIcon: ExampleIcon }) => (
               <li
                 key={number}
-                className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6"
+                className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md sm:p-6"
               >
                 <div className="flex items-center justify-between">
                   <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
@@ -341,47 +345,122 @@ export default function Home() {
                   <span className="text-xs font-semibold tracking-widest text-slate-400">{number}</span>
                 </div>
                 <h3 className="mt-5 text-lg font-semibold tracking-tight text-slate-900">{title}</h3>
-                <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
+                <p className="mt-2 min-h-12 text-sm leading-6 text-slate-600">{description}</p>
+                <div className="mt-5 flex min-h-11 items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700">
+                  <ExampleIcon size={15} className="shrink-0 text-blue-700" aria-hidden="true" />
+                  <span className="min-w-0 truncate">{example}</span>
+                </div>
               </li>
             ))}
           </ol>
         </div>
       </section>
 
-      <section className="px-4 py-16 sm:px-6 sm:py-20 lg:px-8">
-        <div className="mx-auto max-w-6xl">
+      <section
+        id="browser-extension"
+        aria-labelledby="extension-title"
+        className="scroll-mt-20 border-b border-slate-100 bg-white px-4 py-14 sm:px-6 sm:py-16 lg:px-8"
+      >
+        <div className="mx-auto grid max-w-7xl items-center gap-8 rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50/80 to-indigo-50/40 p-5 sm:p-8 lg:grid-cols-[1fr_auto] lg:gap-12">
+          <div className="max-w-2xl">
+            <p className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-white px-3 py-1.5 text-xs font-semibold text-blue-800">
+              <Sparkles size={14} aria-hidden="true" />
+              Browser extension · Coming Soon
+            </p>
+            <h2 id="extension-title" className="mt-4 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
+              Less typing. Faster forms. You stay in control.
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-slate-600 sm:text-base">
+              The upcoming extension will detect website form fields, match
+              them with information and documents you have saved, and help fill
+              in the details you choose. Review the matches, then submit the
+              form yourself.
+            </p>
+          </div>
+          <ul className="grid gap-3 text-sm font-medium text-slate-700 sm:grid-cols-3 lg:grid-cols-1">
+            <li className="flex items-center gap-2">
+              <Check size={16} className="shrink-0 text-blue-700" aria-hidden="true" />
+              Less repetitive typing
+            </li>
+            <li className="flex items-center gap-2">
+              <Check size={16} className="shrink-0 text-blue-700" aria-hidden="true" />
+              Faster form completion
+            </li>
+            <li className="flex items-center gap-2">
+              <Check size={16} className="shrink-0 text-blue-700" aria-hidden="true" />
+              You choose what gets filled
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section
+        id="features"
+        aria-labelledby="features-title"
+        className="scroll-mt-20 bg-slate-50/80 px-4 py-16 sm:px-6 sm:py-20 lg:px-8"
+      >
+        <div className="mx-auto max-w-7xl">
           <div className="max-w-2xl">
             <p className="text-sm font-semibold text-blue-700">MADE FOR EVERYDAY PAPERWORK</p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
-              Less searching. More getting on with your day.
+            <h2 id="features-title" className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
+              Your information, ready when you need it.
             </h2>
           </div>
-          <div className="mt-9 grid gap-3 sm:grid-cols-3 sm:gap-5">
-            <Benefit title="One place" description="Keep the documents you use together in your account." />
-            <Benefit title="Easy to revisit" description="Come back to your saved files when another form needs them." />
-            <Benefit title="Free to start" description="Create an account and get your documents organized." />
+          <div className="mt-9 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {features.map(({ icon: Icon, title, description }) => (
+              <Benefit key={title} icon={Icon} title={title} description={description} />
+            ))}
           </div>
         </div>
       </section>
 
-      <section className="bg-slate-50 px-4 py-14 sm:px-6 sm:py-16 lg:px-8">
-        <div className="mx-auto flex max-w-6xl flex-col gap-6 rounded-2xl border border-slate-200 bg-white p-6 sm:flex-row sm:items-center sm:justify-between sm:p-9">
-          <div className="max-w-xl">
+      <section
+        aria-labelledby="privacy-title"
+        className="border-t border-slate-100 bg-white px-4 py-14 sm:px-6 sm:py-16 lg:px-8"
+      >
+        <div className="mx-auto flex max-w-7xl flex-col gap-5 rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50/80 to-indigo-50/40 p-5 sm:flex-row sm:items-start sm:gap-6 sm:p-8">
+          <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white text-blue-700 ring-1 ring-blue-100">
+            <LockKeyhole size={20} aria-hidden="true" />
+          </span>
+          <div className="max-w-3xl">
+            <h2 id="privacy-title" className="text-lg font-semibold text-slate-900">
+              Your documents are personal. You stay in the loop.
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
+              Upload only documents you want FebRocket to process. Files and
+              extracted information are used to provide document storage,
+              organization, and the features you choose. Review form matches
+              before filling, and submit the form yourself.
+            </p>
+            <Link
+              href="/privacy"
+              className="mt-4 inline-flex min-h-10 items-center gap-1 text-sm font-semibold text-blue-700 underline decoration-blue-200 underline-offset-4 hover:text-blue-800"
+            >
+              Read the Privacy Policy
+              <ArrowRight size={15} aria-hidden="true" />
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-white px-4 pb-16 sm:px-6 sm:pb-20 lg:px-8">
+        <div className="mx-auto flex max-w-7xl flex-col gap-6 rounded-2xl border border-slate-200 bg-slate-50 p-6 sm:flex-row sm:items-center sm:justify-between sm:p-9">
+          <div className="max-w-2xl">
             <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-              Make your next paperwork task easier.
+              Upload once. Organize your information. Fill forms faster.
             </h2>
             <p className="mt-3 text-sm leading-6 text-slate-600 sm:text-base">
-              Start with a free account and keep your important documents together.
+              FebRocket helps with the repetitive parts. You review the details and submit.
             </p>
           </div>
           <button
             type="button"
             onClick={startFree}
             disabled={isLoading || !authChecked}
-            className="inline-flex min-h-14 w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-[#2878f0] px-6 text-base font-semibold text-white transition hover:bg-[#1e63d6] focus-visible:outline-offset-4 disabled:cursor-wait disabled:opacity-60 sm:w-auto sm:min-w-52"
+            className="inline-flex min-h-12 w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-[#2878f0] px-6 text-sm font-semibold text-white transition hover:bg-[#1e63d6] focus-visible:outline-offset-4 disabled:cursor-wait disabled:opacity-60 sm:w-auto"
           >
             {ctaLabel}
-            {!isLoading && authChecked ? <ArrowRight size={18} aria-hidden="true" /> : null}
+            {!isLoading && authChecked ? <ArrowRight size={17} aria-hidden="true" /> : null}
           </button>
         </div>
       </section>
@@ -413,139 +492,141 @@ export default function Home() {
   );
 }
 
-function ExtensionFormPreview() {
-  const detectedFields = [
-    { label: "Full name", value: "Jordan Lee" },
-    { label: "Email address", value: "jordan@example.com" },
-    { label: "Phone number", value: "(555) 010-2048" },
+function ProductWorkflowPreview() {
+  const documents = [
+    { name: "Personal ID.pdf", status: "Processed", ready: true },
+    { name: "Address proof.pdf", status: "Processing", ready: false },
+    { name: "Education record.pdf", status: "Processed", ready: true },
+  ];
+  const details = [
+    { label: "Full name", value: "Mira Example" },
+    { label: "Date of birth", value: "8 September 1994" },
+    { label: "Address", value: "14 Example Road, Pune" },
   ];
 
   return (
     <div
-      className="mx-auto w-full max-w-2xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_20px_70px_-45px_rgba(15,23,42,0.32)]"
+      className="mx-auto w-full max-w-6xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_28px_80px_-48px_rgba(15,23,42,0.35)] sm:rounded-3xl"
       role="img"
-      aria-label="Illustration: the extension detects name, email, and phone fields, matches them with saved profile information, and lets you review before filling."
+      aria-label="Demonstration preview: a recently uploaded document is processing, extracted details are organized in a personal library, and the browser extension matches saved details to website form fields."
     >
-      <div className="flex items-center gap-2 border-b border-slate-200 bg-white px-4 py-3">
-        <span className="h-2.5 w-2.5 rounded-full bg-slate-300" />
-        <span className="h-2.5 w-2.5 rounded-full bg-slate-300" />
-        <span className="h-2.5 w-2.5 rounded-full bg-slate-300" />
-        <div className="ml-2 min-w-0 flex-1 truncate rounded-md bg-slate-50 px-3 py-1.5 text-xs text-slate-500">
-          example.com / create-account
-        </div>
+      <div className="flex min-h-14 items-center justify-between gap-3 border-b border-slate-100 px-4 sm:px-6">
+        <span className="text-sm font-semibold tracking-tight text-slate-900">FebRocket</span>
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-blue-800 sm:text-xs">
+          <BadgeCheck size={13} aria-hidden="true" />
+          Product preview
+        </span>
       </div>
 
-      <div className="grid gap-4 p-4 sm:p-5 md:grid-cols-2">
-        <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/70 p-4">
+      <div className="grid min-w-0 gap-3 p-3 sm:gap-4 sm:p-5 lg:grid-cols-[0.9fr_1fr_1.08fr]">
+        <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-4">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-semibold text-slate-900">Create an account</p>
-            <span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-blue-700">
-              Website form
-            </span>
-          </div>
-          <div className="mt-4 grid gap-3">
-            {detectedFields.map(({ label, value }) => (
-              <div key={label}>
-                <div className="mb-1 flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-medium text-slate-600">{label}</span>
-                  <span className="inline-flex shrink-0 items-center gap-1 text-[10px] font-medium text-blue-700">
-                    <Sparkles size={11} aria-hidden="true" />
-                    Detected
-                  </span>
-                </div>
-                <div className="truncate rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs text-slate-500">
-                  {value}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="min-w-0 rounded-xl border border-blue-100 bg-blue-50/50 p-4">
-          <div className="flex items-center gap-2">
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-white">
-              <Sparkles size={16} aria-hidden="true" />
-            </span>
             <div>
-              <p className="text-sm font-semibold text-slate-900">FebRocket AI</p>
-              <p className="text-[11px] text-slate-500">Saved information match</p>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Documents</p>
+              <h2 className="mt-1 text-sm font-semibold text-slate-900">Your uploads</h2>
             </div>
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
+              <Upload size={16} aria-hidden="true" />
+            </span>
           </div>
-
-          <ul className="mt-4 grid gap-2">
-            {detectedFields.map(({ label, value }) => (
-              <li
-                key={label}
-                className="flex min-w-0 items-center gap-2 rounded-lg border border-white bg-white px-2.5 py-2"
-              >
-                <Check size={14} className="shrink-0 text-emerald-600" aria-hidden="true" />
-                <span className="min-w-0 flex-1 truncate text-[11px] text-slate-700">{value}</span>
-                <span className="shrink-0 text-[10px] text-slate-400">Matched</span>
+          <ul className="mt-3 divide-y divide-slate-100">
+            {documents.map(({ name, status, ready }) => (
+              <li key={name} className="flex min-w-0 items-center gap-2.5 py-3">
+                <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-slate-600">
+                  <FileText size={17} aria-hidden="true" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-medium text-slate-800">{name}</span>
+                  <span className={`mt-1 inline-flex items-center gap-1 text-[10px] ${ready ? "text-emerald-700" : "text-blue-700"}`}>
+                    {ready ? <Check size={11} aria-hidden="true" /> : <span className="h-2 w-2 animate-pulse rounded-full bg-blue-500" aria-hidden="true" />}
+                    {status}
+                  </span>
+                  {!ready ? (
+                    <span className="mt-1.5 block h-1 overflow-hidden rounded-full bg-blue-100">
+                      <span className="block h-full w-2/3 rounded-full bg-blue-500" />
+                    </span>
+                  ) : null}
+                </span>
               </li>
             ))}
           </ul>
+        </section>
 
-          <div className="mt-3 rounded-lg bg-white px-3 py-2.5 text-center text-xs font-semibold text-blue-700 ring-1 ring-blue-100">
-            Review matches before filling
+        <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-4">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Personal library</p>
+              <h2 className="mt-1 text-sm font-semibold text-slate-900">Mira Example</h2>
+            </div>
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-700">
+              <UserRound size={16} aria-hidden="true" />
+            </span>
           </div>
-        </div>
+          <p className="mt-3 flex items-center gap-1.5 text-[10px] font-medium text-emerald-700">
+            <Check size={12} aria-hidden="true" />
+            Extracted from Personal ID.pdf
+          </p>
+          <dl className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-100 px-3">
+            {details.map(({ label, value }) => (
+              <div key={label} className="py-2.5">
+                <dt className="text-[10px] text-slate-500">{label}</dt>
+                <dd className="mt-0.5 truncate text-xs font-medium text-slate-800">{value}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-3 text-[10px] leading-4 text-slate-500">
+            Find saved details together with their source documents.
+          </p>
+        </section>
+
+        <section className="min-w-0 rounded-xl border border-blue-100 bg-gradient-to-br from-blue-50/70 to-indigo-50/50 p-4">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white">
+              <PanelTop size={16} aria-hidden="true" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-slate-900">Browser extension</p>
+              <p className="text-[10px] text-slate-500">Coming soon · Example form matches</p>
+            </div>
+          </div>
+          <div className="mt-3 rounded-lg border border-blue-100 bg-white p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-[10px] font-semibold text-slate-700">Application form</span>
+              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[9px] font-semibold text-blue-700">3 matches</span>
+            </div>
+            <ul className="grid gap-2">
+              {details.map(({ label, value }) => (
+                <li key={label} className="flex min-w-0 items-center gap-1.5 rounded-md bg-slate-50 px-2 py-1.5">
+                  <Check size={12} className="shrink-0 text-emerald-600" aria-hidden="true" />
+                  <span className="min-w-0 flex-1 truncate text-[10px] text-slate-700">{label}</span>
+                  <span className="shrink-0 text-[9px] font-medium text-blue-700">Matched</span>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-2 rounded-md bg-blue-600 px-2 py-2 text-center text-[10px] font-semibold text-white">
+              Review selected fields
+            </div>
+          </div>
+          <p className="mt-2 text-[10px] leading-4 text-slate-600">
+            You choose what to fill and submit the form yourself.
+          </p>
+        </section>
       </div>
-      <div className="border-t border-slate-100 px-4 py-3 text-center text-[11px] text-slate-500">
-        Preview only · You decide what to autofill
+
+      <div className="border-t border-slate-100 px-4 py-2.5 text-center text-[10px] text-slate-500 sm:text-xs">
+        Demonstration only · Sample data · Not connected to a live account
       </div>
     </div>
   );
 }
 
-function DocumentPreviewIllustration() {
-  const documents = [
-    { icon: FileText, title: "Personal document", type: "PDF document" },
-    { icon: FileText, title: "Certificate", type: "Image document" },
-    { icon: FileText, title: "Other paperwork", type: "PDF document" },
-  ];
-
+function Benefit({ icon: Icon, title, description }) {
   return (
-    <div
-      className="mx-auto w-full max-w-lg rounded-[1.75rem] border border-slate-200 bg-slate-50 p-4 shadow-[0_20px_70px_-45px_rgba(15,23,42,0.32)] sm:p-7"
-      aria-label="Illustration of documents kept together"
-      role="img"
-    >
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-          <div>
-            <p className="text-xs font-medium text-slate-500">YOUR FILES</p>
-            <p className="mt-1 text-lg font-semibold tracking-tight text-slate-900">Your documents</p>
-          </div>
-          <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
-            <FolderOpen size={20} aria-hidden="true" />
-          </span>
-        </div>
-        <ul className="mt-2 divide-y divide-slate-100">
-          {documents.map(({ icon: Icon, title, type }) => (
-            <li key={title} className="flex min-w-0 items-center gap-3 py-4">
-              <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
-                <Icon size={18} strokeWidth={1.8} aria-hidden="true" />
-              </span>
-              <span className="min-w-0">
-                <span className="block truncate text-sm font-medium text-slate-800">{title}</span>
-                <span className="mt-0.5 block text-xs text-slate-500">{type}</span>
-              </span>
-            </li>
-          ))}
-        </ul>
-        <p className="mt-2 flex items-center gap-2 rounded-xl bg-blue-50 px-3 py-2.5 text-sm font-medium text-blue-800">
-          <FolderOpen size={16} aria-hidden="true" />
-          Together in one place
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function Benefit({ title, description }) {
-  return (
-    <article className="rounded-2xl bg-slate-50 p-5 sm:p-6">
-      <h3 className="text-base font-semibold text-slate-900">{title}</h3>
+    <article className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
+      <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+        <Icon size={19} strokeWidth={1.8} aria-hidden="true" />
+      </span>
+      <h3 className="mt-4 text-base font-semibold text-slate-900">{title}</h3>
       <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
     </article>
   );

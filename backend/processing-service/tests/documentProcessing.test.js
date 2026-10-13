@@ -5,6 +5,7 @@ const geminiService = require("../services/geminiService");
 const { processDocument } = require("../workers/documentWorker");
 const { generateDocumentDisplayName } = require("../helpers/documentDisplayName");
 const { normalizeExtractionResult } = require("../services/geminiService");
+const { createHealthServer } = require("../server");
 
 function replace(target, key, value) {
   const original = target[key];
@@ -13,6 +14,35 @@ function replace(target, key, value) {
     target[key] = original;
   };
 }
+
+test("health endpoint reports Processing-Service status", async () => {
+  const server = createHealthServer();
+
+  try {
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/health`);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(
+      {
+        success: body.success,
+        service: body.service,
+        status: body.status,
+      },
+      {
+        success: true,
+        service: "processing-service",
+        status: "ok",
+      },
+    );
+    assert.ok(Number.isFinite(Date.parse(body.timestamp)));
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
 
 test("display name includes document type, issuer, and year", () => {
   assert.equal(

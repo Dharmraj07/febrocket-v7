@@ -29,6 +29,12 @@ credentials in Document-Service. Never put provider credentials in the frontend.
 Scale Processing-Service instances independently; `OCR_WORKER_CONCURRENCY`
 controls each instance's worker concurrency.
 
+The service exposes a liveness endpoint on `PORT` (default `5000`):
+
+```bash
+curl http://localhost:5000/health
+```
+
 The service uses Document-Service's internal endpoints:
 
 - `GET /internal/processing/documents/:id/source?requestId=...`
