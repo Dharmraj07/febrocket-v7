@@ -94,16 +94,17 @@ const sanitizeUpdatePayload = (payload = {}) => {
 
 const getUserDocumentData = async (req, res) => {
   try {
+    const userId = req.workspaceOwnerId || req.user.id;
     const { page, limit } = parsePagination(req);
     const skip = (page - 1) * limit;
 
     const [records, total] = await Promise.all([
-      Document.find({ userId: req.user.id })
+      Document.find({ userId })
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .lean(),
-      Document.countDocuments({ userId: req.user.id }),
+      Document.countDocuments({ userId }),
     ]);
 
     return res.status(200).json({
@@ -133,7 +134,7 @@ const getUserDocumentDataById = async (req, res) => {
 
     const record = await Document.findOne({
       _id: documentId,
-      userId: req.user.id,
+      userId: req.workspaceOwnerId || req.user.id,
     }).lean();
 
     if (!record) {
@@ -169,7 +170,7 @@ const updateUserDocumentData = async (req, res) => {
 
     const record = await Document.findOne({
       _id: documentId,
-      userId: req.user.id,
+      userId: req.workspaceOwnerId || req.user.id,
     });
 
     if (!record) {
@@ -185,7 +186,10 @@ const updateUserDocumentData = async (req, res) => {
 
     if (update.data) {
       await DocumentLibrary.updateMany(
-        { userId: req.user.id, "documents.documentId": documentId },
+        {
+          userId: req.workspaceOwnerId || req.user.id,
+          "documents.documentId": documentId,
+        },
         { $set: { "documents.$.data": update.data } }
       ).catch((err) => {
         console.warn("Could not sync updated document data to library:", err.message);

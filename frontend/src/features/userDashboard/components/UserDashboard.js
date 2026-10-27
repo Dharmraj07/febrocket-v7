@@ -8,20 +8,28 @@ import {
   ArrowUpRight,
   Check,
   ChevronRight,
+  Clock3,
+  Copy,
   Download,
   FileText,
   Image as ImageIcon,
   Info,
+  Link2,
   MoreHorizontal,
   Printer,
+  Share2,
   Trash2,
   Upload,
+  Unlink,
+  UserRound,
   X,
 } from "lucide-react";
 import { selectAuth } from "@/features/auth/authSlice";
+import { api, swallowAbortError } from "@/lib/api";
 import {
   clearDocumentError,
   clearDocumentMessage,
+  clearWorkspaceDocuments,
   deleteDocument,
   downloadDocument,
   getDocuments,
@@ -42,6 +50,7 @@ import {
   uploadDocument,
 } from "@/features/document/documentSlice";
 import UserWorkspaceShell from "@/features/dashboard/components/UserWorkspaceShell";
+import { MessagesContent } from "@/features/messages/components/UserMessagesPage";
 import DocumentDetailsDialog from "./DocumentDetailsDialog";
 import DocumentPropertiesDialog from "./DocumentPropertiesDialog";
 import {
@@ -155,14 +164,20 @@ function getReadableDocumentName(documentItem) {
     .trim();
 }
 
+function getDocumentOwnerId(documentItem) {
+  return String(documentItem?.userId?._id || documentItem?.userId || "");
+}
+
 function DocumentActionMenu({
   documentItem,
+  canDelete,
   open,
   menuRef,
   triggerRef,
   onToggle,
   onClose,
   onPreview,
+  onDownload,
   onDelete,
 }) {
   const label = getReadableDocumentName(documentItem);
@@ -194,15 +209,27 @@ function DocumentActionMenu({
           >
             <ArrowUpRight size={16} /> Preview
           </button>
-          <div className="my-1 border-t border-slate-100" />
           <button
             type="button"
             role="menuitem"
-            onClick={() => { onClose(); onDelete(); }}
+            onClick={() => { onClose(); onDownload(); }}
             className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-sm text-slate-700 hover:bg-slate-50"
           >
-            <Trash2 size={16} /> Delete
+            <Download size={16} /> Download
           </button>
+          {canDelete ? (
+            <>
+              <div className="my-1 border-t border-slate-100" />
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => { onClose(); onDelete(); }}
+                className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-sm text-slate-700 hover:bg-slate-50"
+              >
+                <Trash2 size={16} /> Delete
+              </button>
+            </>
+          ) : null}
         </div>
       )}
     </div>
@@ -234,10 +261,481 @@ function trapDialogFocus(event) {
   }
 }
 
+function getConnectionData(response) {
+  const data = response.data?.data;
+  if (data?.connected === false && data.user === null) {
+    return { connected: false, user: null };
+  }
+  if (
+    data?.connected === true &&
+    data.user &&
+    typeof data.user.userName === "string" &&
+    ["owner", "viewer"].includes(data.role)
+  ) {
+    return data;
+  }
+  throw new Error("Connection status could not be confirmed.");
+}
+
+function getShareActionError(requestError, action) {
+  const apiMessage = requestError.response?.data?.message?.toLowerCase() || "";
+  if (apiMessage.includes("invalid or expired")) {
+    return "That code is invalid or has expired. Ask for a new code and try again.";
+  }
+  if (apiMessage.includes("cannot connect to yourself")) {
+    return "You can't connect an account to itself. Use a code from another person.";
+  }
+  if (apiMessage.includes("no longer available")) {
+    return "That code is no longer available. Ask for a new code and try again.";
+  }
+  if (requestError.response?.status === 429) {
+    return "Too many attempts. Please wait a moment and try again.";
+  }
+  if (action === "generate") {
+    return "We couldn't generate a code. Please try again.";
+  }
+  if (action === "connect") {
+    return "We couldn't connect these accounts. Check the code and try again.";
+  }
+  if (action === "disconnect") {
+    return "We couldn't disconnect this account. Please try again.";
+  }
+  return "We couldn't complete that action. Please try again.";
+}
+
+function ShareWorkspace() {
+  const [connection, setConnection] = useState(null);
+  const [shareCode, setShareCode] = useState(null);
+  const [connectCode, setConnectCode] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busyAction, setBusyAction] = useState("");
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
+  const [error, setError] = useState("");
+  const [connectError, setConnectError] = useState("");
+  const [message, setMessage] = useState("");
+  const actionLockRef = useRef(false);
+  const connected = Boolean(connection?.connected && connection?.user);
+  const shareCodeExpiry = shareCode ? new Date(shareCode.expiresAt).getTime() : 0;
+  const shareCodeExpired = Boolean(shareCode && currentTime >= shareCodeExpiry);
+  const remainingSeconds = Math.max(
+    0,
+    Math.ceil((shareCodeExpiry - currentTime) / 1000)
+  );
+  const codeCharactersValid = /^[A-Z0-9]*$/.test(connectCode);
+  const connectCodeValid = /^[A-Z0-9]{4}$/.test(connectCode);
+
+  const fetchConnection = useCallback(
+    () => api.get("/api/auth/share/connection"),
+    []
+  );
+
+  const loadConnection = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const response = await fetchConnection();
+      setConnection(getConnectionData(response));
+    } catch {
+      setConnection(null);
+      setError("We couldn't check your connection. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchConnection]);
+
+  useEffect(() => {
+    let active = true;
+    fetchConnection()
+      .then((response) => {
+        if (active) setConnection(getConnectionData(response));
+      })
+      .catch(() => {
+        if (active) {
+          setConnection(null);
+          setError("We couldn't check your connection. Please try again.");
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [fetchConnection]);
+
+  useEffect(() => {
+    if (!shareCode || shareCodeExpired) return undefined;
+    const timer = window.setInterval(() => setCurrentTime(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [shareCode, shareCodeExpired]);
+
+  const performAction = async (action, request, onSuccess, fallbackMessage) => {
+    if (actionLockRef.current) return false;
+    actionLockRef.current = true;
+    setBusyAction(action);
+    setError("");
+    setMessage("");
+    try {
+      const response = await request();
+      onSuccess(response);
+      setMessage(response.data?.message || fallbackMessage);
+      return true;
+    } catch (requestError) {
+      const actionError = getShareActionError(requestError, action);
+      setError(actionError);
+      if (action === "connect") setConnectError(actionError);
+      return false;
+    } finally {
+      actionLockRef.current = false;
+      setBusyAction("");
+    }
+  };
+
+  const generateCode = () => {
+    setConnectError("");
+    return performAction(
+      "generate",
+      () => api.post("/api/auth/share/code"),
+      (response) => {
+        const generatedCode = response.data?.data;
+        const expiresAt = new Date(generatedCode?.expiresAt);
+        if (
+          typeof generatedCode?.code !== "string" ||
+          !/^[A-Z0-9]{4}$/.test(generatedCode.code) ||
+          !Number.isFinite(expiresAt.getTime()) ||
+          expiresAt.getTime() <= Date.now()
+        ) {
+          throw new Error("The sharing code could not be confirmed.");
+        }
+        setShareCode({
+          code: generatedCode.code,
+          expiresAt: expiresAt.toISOString(),
+        });
+        setCurrentTime(Date.now());
+      },
+      "Sharing code generated."
+    );
+  };
+
+  const cancelCode = () => {
+    setConnectError("");
+    return performAction(
+      "cancel",
+      () => api.delete("/api/auth/share/code"),
+      () => setShareCode(null),
+      "Sharing code cancelled."
+    );
+  };
+
+  const connectAccount = async (event) => {
+    event.preventDefault();
+    const code = connectCode.trim().toUpperCase();
+    if (!/^[A-Z0-9]{4}$/.test(code) || loading || !connection) return;
+
+    await performAction(
+      "connect",
+      () => api.post("/api/auth/share/connect", { code }),
+      (response) => {
+        const data = response.data?.data;
+        if (
+          data?.connected !== true ||
+          !data.user ||
+          typeof data.user.userName !== "string" ||
+          data.role !== "viewer"
+        ) {
+          throw new Error("The connection could not be confirmed.");
+        }
+        setConnection(data);
+        setConnectCode("");
+        setConnectError("");
+        setShareCode(null);
+      },
+      "Accounts connected."
+    );
+  };
+
+  const disconnectAccount = () => {
+    if (!window.confirm("Disconnect this account? You can connect again with a new code.")) {
+      return;
+    }
+    return performAction(
+      "disconnect",
+      () => api.delete("/api/auth/share/connection"),
+      () => {
+        setConnection({ connected: false, user: null });
+        setShareCode(null);
+      },
+      "Account disconnected."
+    );
+  };
+
+  const copyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(shareCode.code);
+      setError("");
+      setMessage("Sharing code copied.");
+    } catch {
+      setError("We couldn't copy the code. You can select and copy it manually.");
+    }
+  };
+
+  return (
+    <div className="mx-auto max-w-[1040px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <section aria-labelledby="share-heading">
+        <header className="max-w-3xl">
+          <h1 id="share-heading" className="text-2xl font-semibold tracking-tight text-[#0F172A] sm:text-3xl">
+            Connect accounts
+          </h1>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Share access to your documents with one person, or use their code to access theirs. Sharing is one-way.
+          </p>
+          <p className="mt-3 flex items-center gap-2 text-sm text-slate-600" role="status" aria-live="polite">
+            <span
+              className={`h-2 w-2 shrink-0 rounded-full ${
+                loading || busyAction
+                  ? "animate-pulse bg-blue-500"
+                  : connected
+                    ? "bg-emerald-500"
+                    : connection === null && error
+                      ? "bg-amber-500"
+                      : "bg-slate-400"
+              }`}
+              aria-hidden="true"
+            />
+            {loading
+              ? "Checking connection…"
+              : busyAction === "generate"
+                ? "Generating code…"
+                : busyAction === "connect"
+                  ? "Connecting…"
+                  : busyAction === "disconnect"
+                    ? "Disconnecting…"
+                    : connected
+                      ? connection.role === "owner"
+                        ? `Sharing your documents with ${connection.user.userName}`
+                        : `Accessing ${connection.user.userName}'s documents`
+                      : connection === null && error
+                        ? "Connection status unavailable"
+                        : "Not connected"}
+          </p>
+        </header>
+
+        {error ? (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800" role="alert">
+            <span>{error}</span>
+            {connection === null && (
+              <button
+                type="button"
+                onClick={() => void loadConnection()}
+                disabled={loading || Boolean(busyAction)}
+                className="min-h-10 rounded-lg border border-rose-200 bg-white px-4 font-semibold text-rose-800 transition hover:bg-rose-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Try again
+              </button>
+            )}
+          </div>
+        ) : null}
+
+        {message ? (
+          <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status" aria-live="polite">
+            {message}
+          </p>
+        ) : null}
+
+        <p className="mt-4 max-w-4xl text-sm leading-6 text-slate-500">
+          The person redeeming a code can view, download, edit extracted information,
+          and organize the code owner&apos;s documents. They cannot upload or delete.
+          Changes are saved to the owner&apos;s account. Either person can disconnect;
+          connecting to someone else replaces the previous connection.
+        </p>
+
+        {loading ? (
+          <div className="mt-5 border-t border-slate-200 py-8 text-sm text-slate-600" role="status">
+            Checking your connection…
+          </div>
+        ) : connection ? (
+          <div className="mt-5 grid max-w-4xl gap-5 md:grid-cols-2">
+            {!connected ? (
+              <>
+            <section className="flex flex-col rounded-xl border border-slate-200 bg-white p-5 sm:p-6" aria-labelledby="generate-share-code-heading">
+              <div>
+                <h2 id="generate-share-code-heading" className="font-semibold text-slate-900">
+                  Share your connection code
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  It expires after 10 minutes. A new code replaces the previous one.
+                </p>
+              </div>
+
+              {shareCode && !shareCodeExpired ? (
+                <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50/70 p-4" aria-live="polite">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-blue-800">
+                    Your code
+                  </p>
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+                    <p className="font-mono text-3xl font-bold tracking-[0.28em] text-slate-900" aria-label={`Connection code ${shareCode.code}`}>
+                      {shareCode.code}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => void copyCode()}
+                      disabled={Boolean(busyAction)}
+                      className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 text-sm font-semibold text-blue-800 transition hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Copy size={15} aria-hidden="true" />
+                      Copy code
+                    </button>
+                  </div>
+                  <p className="mt-3 flex items-center gap-2 text-sm text-slate-700">
+                    <Clock3 size={15} aria-hidden="true" />
+                    <span>
+                      Expires in {Math.floor(remainingSeconds / 60)}:
+                      {String(remainingSeconds % 60).padStart(2, "0")}
+                      {" · "}
+                      <time dateTime={shareCode.expiresAt}>
+                        {new Date(shareCode.expiresAt).toLocaleTimeString([], {
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })}
+                      </time>
+                    </span>
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void cancelCode()}
+                    disabled={Boolean(busyAction)}
+                    className="mt-3 min-h-9 text-sm font-medium text-slate-600 underline underline-offset-2 transition hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {busyAction === "cancel" ? "Cancelling code…" : "Cancel code"}
+                  </button>
+                </div>
+              ) : shareCodeExpired ? (
+                <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4" role="status">
+                  <p className="font-semibold text-amber-900">This code has expired</p>
+                  <p className="mt-1 text-sm leading-5 text-amber-800">
+                    Generate a new code to continue. The expired code can no longer connect accounts.
+                  </p>
+                </div>
+              ) : null}
+
+              <button
+                type="button"
+                onClick={() => void generateCode()}
+                disabled={Boolean(busyAction)}
+                className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#2878f0] px-4 text-sm font-semibold text-white transition hover:bg-[#1e63d6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Share2 size={16} aria-hidden="true" />
+                {busyAction === "generate"
+                  ? "Generating code…"
+                  : shareCode
+                    ? "Generate a new code"
+                    : "Generate code"}
+              </button>
+            </section>
+
+            <section className="flex flex-col rounded-xl border border-slate-200 bg-white p-5 sm:p-6" aria-labelledby="connect-share-code-heading">
+              <div>
+                <h2 id="connect-share-code-heading" className="font-semibold text-slate-900">
+                  Connect using a code
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Enter the four-character code shared with you.
+                  {connected ? " This replaces your current connection." : ""}
+                </p>
+              </div>
+              <form onSubmit={connectAccount} className="mt-5 flex flex-1 flex-col gap-3">
+                <label htmlFor="share-code-input" className="text-sm font-medium text-slate-700">
+                  Connection code
+                </label>
+                <input
+                  id="share-code-input"
+                  type="text"
+                  inputMode="text"
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  maxLength={4}
+                  value={connectCode}
+                  onChange={(event) => {
+                    setConnectCode(event.target.value.toUpperCase());
+                    setConnectError("");
+                    setError("");
+                  }}
+                  placeholder="A7K2"
+                  aria-invalid={Boolean(connectError || (connectCode && !codeCharactersValid))}
+                  aria-describedby="share-code-help share-code-validation"
+                  disabled={Boolean(busyAction)}
+                  className="min-h-12 w-full rounded-xl border border-slate-300 px-4 font-mono text-lg font-semibold tracking-[0.25em] uppercase text-slate-900 outline-none transition placeholder:font-normal placeholder:tracking-[0.2em] placeholder:text-slate-400 focus-visible:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-200 disabled:bg-slate-50"
+                />
+                <p id="share-code-help" className="text-xs leading-5 text-slate-500">
+                  Paste or type the code. Lowercase letters are converted automatically.
+                </p>
+                <p id="share-code-validation" className="min-h-5 text-sm text-rose-700" aria-live="polite">
+                  {connectError ||
+                    (connectCode && !codeCharactersValid
+                      ? "Use letters A–Z and numbers 0–9 only."
+                      : connectCode && !connectCodeValid
+                        ? "Enter all 4 characters to continue."
+                        : "")}
+                </p>
+                <button
+                  type="submit"
+                  disabled={!connectCodeValid || Boolean(busyAction) || loading}
+                  className="mt-auto inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-700 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Link2 size={16} aria-hidden="true" />
+                  {busyAction === "connect"
+                    ? "Connecting…"
+                    : connected
+                      ? "Switch connection"
+                      : "Connect account"}
+                </button>
+              </form>
+            </section>
+              </>
+            ) : null}
+            {connected ? (
+              <section className="md:col-span-2 rounded-xl border border-slate-200 bg-white p-5 sm:p-6" aria-labelledby="connected-account-heading">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
+                <UserRound size={21} aria-hidden="true" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-slate-600">Connected account</p>
+                <h2 id="connected-account-heading" className="mt-0.5 truncate text-lg font-semibold text-slate-900">
+                  {connection.user.userName}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={disconnectAccount}
+                disabled={Boolean(busyAction)}
+                className="inline-flex min-h-11 items-center justify-center gap-2 self-start rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-700 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 sm:self-auto"
+              >
+                <Unlink size={16} aria-hidden="true" />
+                {busyAction === "disconnect" ? "Disconnecting…" : "Disconnect account"}
+              </button>
+            </div>
+            <p className="mt-4 border-t border-slate-100 pt-4 text-sm leading-6 text-slate-600">
+              {connection.role === "owner"
+                ? `${connection.user.userName} can view, download, edit extracted information, and organize your documents. They cannot upload or delete documents. Changes are saved to your account. You cannot access their documents unless they share them with you using a separate code.`
+                : `You can view, download, edit extracted information, and organize ${connection.user.userName}'s documents. You cannot upload or delete their documents. Changes are saved to their account. They cannot access your documents unless you share them using a separate code.`}
+              {" "}Disconnecting removes this access immediately.
+            </p>
+          </section>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
+    </div>
+  );
+}
+
 export default function UserDashboard() {
   const router = useRouter();
   const dispatch = useDispatch();
   const { user, isLoading } = useSelector(selectAuth);
+  const currentUserId = String(user?._id || user?.id || "");
   const documents = useSelector(selectDocuments);
   const documentsPagination = useSelector(selectDocumentsPagination);
   const libraries = useSelector(selectDocumentLibraries);
@@ -262,6 +760,9 @@ export default function UserDashboard() {
   const [documentDetailsTarget, setDocumentDetailsTarget] = useState(null);
   const [propertiesTarget, setPropertiesTarget] = useState(null);
   const [dashboardView, setDashboardView] = useState("browse");
+  const [workspaceOwnerId, setWorkspaceOwnerId] = useState(currentUserId);
+  const [connectedAccount, setConnectedAccount] = useState(null);
+  const [connectionCheckError, setConnectionCheckError] = useState("");
   const [documentPage, setDocumentPage] = useState(
     () => documentsPagination.page || 1
   );
@@ -293,57 +794,79 @@ export default function UserDashboard() {
   const initialDocumentPageRef = useRef(documentPage);
   const [dashboardHistoryReady, setDashboardHistoryReady] = useState(false);
   const pendingLibraryIdRef = useRef(null);
+  const isConnectedWorkspace = Boolean(
+    workspaceOwnerId && workspaceOwnerId !== currentUserId
+  );
 
   const requestDocumentPage = useCallback((page) => {
     const requestVersion = ++documentPageRequestRef.current;
     setDocumentPage(page);
     activeDocumentPageRequestRef.current?.abort();
-    const request = dispatch(getDocuments({ page, limit: 20 }));
+    const request = dispatch(
+      getDocuments({ page, limit: 20, ownerId: workspaceOwnerId })
+    );
     activeDocumentPageRequestRef.current = request;
-    request.then((action) => {
-      if (
-        requestVersion === documentPageRequestRef.current &&
-        getDocuments.fulfilled.match(action)
-      ) {
-        setDocumentPage(action.payload?.pagination?.page || page);
-      }
-    });
+    request
+      .then((action) => {
+        if (
+          requestVersion === documentPageRequestRef.current &&
+          getDocuments.fulfilled.match(action)
+        ) {
+          setDocumentPage(action.payload?.pagination?.page || page);
+        }
+      })
+      .catch(swallowAbortError);
     return request;
-  }, [dispatch]);
+  }, [dispatch, workspaceOwnerId]);
 
   const requestDocumentLibraries = useCallback(() => {
     activeLibrariesRequestRef.current?.abort();
-    const request = dispatch(getDocumentLibraries());
+    const request = dispatch(getDocumentLibraries(workspaceOwnerId));
+    request.catch(swallowAbortError);
     activeLibrariesRequestRef.current = request;
     return request;
-  }, [dispatch]);
+  }, [dispatch, workspaceOwnerId]);
 
   const requestLibraryDocuments = useCallback((libraryId) => {
     activeLibraryDocumentsRequestRef.current?.abort();
-    const request = dispatch(getLibraryDocuments(libraryId));
+    const request = dispatch(
+      getLibraryDocuments({ libraryId, ownerId: workspaceOwnerId })
+    );
+    request.catch(swallowAbortError);
     activeLibraryDocumentsRequestRef.current = request;
     return request;
-  }, [dispatch]);
+  }, [dispatch, workspaceOwnerId]);
 
   const refreshVisibleDocumentData = useCallback((documentId) => {
     void requestDocumentPage(documentPageRef.current);
-    void requestDocumentLibraries().then((action) => {
-      if (!getDocumentLibraries.fulfilled.match(action)) return;
-      const selectedLibraryId = activeLibraryIdRef.current;
-      if (!selectedLibraryId) return;
-      const refreshedLibrary = action.payload.find(
-        (library) => String(library._id) === selectedLibraryId
-      );
-      if (!refreshedLibrary) {
-        activeLibraryDocumentsRequestRef.current?.abort();
-        setActiveLibrary(null);
-        return;
-      }
-      setActiveLibrary(refreshedLibrary);
-      void requestLibraryDocuments(refreshedLibrary._id);
-    });
-    if (documentId) void dispatch(getDocumentById(documentId));
-  }, [dispatch, requestDocumentLibraries, requestDocumentPage, requestLibraryDocuments]);
+    void requestDocumentLibraries()
+      .then((action) => {
+        if (!getDocumentLibraries.fulfilled.match(action)) return;
+        const selectedLibraryId = activeLibraryIdRef.current;
+        if (!selectedLibraryId) return;
+        const refreshedLibrary = action.payload.find(
+          (library) => String(library._id) === selectedLibraryId
+        );
+        if (!refreshedLibrary) {
+          activeLibraryDocumentsRequestRef.current?.abort();
+          setActiveLibrary(null);
+          return;
+        }
+        setActiveLibrary(refreshedLibrary);
+        void requestLibraryDocuments(refreshedLibrary._id);
+      })
+      .catch(swallowAbortError);
+    if (documentId) {
+      const documentRequest = dispatch(getDocumentById({ documentId, ownerId: workspaceOwnerId }));
+      documentRequest.catch(swallowAbortError);
+    }
+  }, [
+    dispatch,
+    requestDocumentLibraries,
+    requestDocumentPage,
+    requestLibraryDocuments,
+    workspaceOwnerId,
+  ]);
 
   const pushDashboardViewHistory = useCallback((view, libraryId = null) => {
     window.history.pushState(
@@ -363,8 +886,9 @@ export default function UserDashboard() {
   useEffect(() => {
     let active = true;
     const savedView = window.history.state?.[DOCUMENT_VIEW_HISTORY_KEY];
-    const restoredView =
-      savedView?.view === "organize" ? "organize" : "browse";
+    const restoredView = ["organize", "share", "messages"].includes(savedView?.view)
+      ? savedView.view
+      : "browse";
     const restoredPage =
       Number.isInteger(savedView?.page) && savedView.page > 0
         ? savedView.page
@@ -415,6 +939,64 @@ export default function UserDashboard() {
   }, [activeLibrary, dashboardHistoryReady, dashboardView, documentPage]);
 
   useEffect(() => {
+    if (!currentUserId || dashboardView === "share") return undefined;
+    let active = true;
+    const clearConnectedWorkspace = () => {
+      if (workspaceOwnerId === currentUserId) return;
+      setWorkspaceOwnerId(currentUserId);
+      setActiveLibrary(null);
+      setDocumentPage(1);
+      documentPageRef.current = 1;
+      initialDocumentPageRef.current = 1;
+      activeLibraryIdRef.current = null;
+      pendingLibraryIdRef.current = null;
+      dispatch(clearWorkspaceDocuments());
+    };
+    api.get("/api/auth/share/connection")
+      .then((response) => {
+        if (!active) return;
+        setConnectionCheckError("");
+        const connection = response.data?.data;
+        if (
+          connection?.connected === true &&
+          connection.user?.id &&
+          String(connection.user.id) !== currentUserId
+        ) {
+          if (connection.role === "viewer") {
+            setConnectedAccount({
+              id: String(connection.user.id),
+              userName: connection.user.userName || "Connected account",
+            });
+          } else if (connection.role === "owner") {
+            setConnectedAccount(null);
+            clearConnectedWorkspace();
+          } else {
+            setConnectedAccount(null);
+            setConnectionCheckError("We couldn't confirm your connected account.");
+            clearConnectedWorkspace();
+          }
+        } else if (connection?.connected === false) {
+          setConnectedAccount(null);
+          clearConnectedWorkspace();
+        } else {
+          setConnectedAccount(null);
+          setConnectionCheckError("We couldn't confirm your connected account.");
+          clearConnectedWorkspace();
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setConnectedAccount(null);
+          setConnectionCheckError("We couldn't check your connected account.");
+          clearConnectedWorkspace();
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [currentUserId, dashboardView, dispatch, workspaceOwnerId]);
+
+  useEffect(() => {
     documentPageRef.current = documentPage;
   }, [documentPage]);
 
@@ -426,16 +1008,16 @@ export default function UserDashboard() {
 
   useEffect(() => {
     if (!user) return undefined;
-    const userId = String(user._id || user.id || "");
     return subscribeToDocumentProcessingEvents({
+      ownerId: workspaceOwnerId,
       onOpen: () => refreshVisibleDocumentData(),
       onEvent: (event) => {
-        if (String(event.userId) === userId) {
+        if (String(event.userId) === workspaceOwnerId) {
           refreshVisibleDocumentData(event.documentId);
         }
       },
     });
-  }, [refreshVisibleDocumentData, user]);
+  }, [refreshVisibleDocumentData, user, workspaceOwnerId]);
 
   useEffect(() => {
     if (!pendingLibraryIdRef.current) return;
@@ -453,26 +1035,33 @@ export default function UserDashboard() {
       const requestVersion = ++documentPageRequestRef.current;
       activeDocumentPageRequestRef.current?.abort();
       const documentsRequest = dispatch(
-        getDocuments({ page: initialDocumentPageRef.current, limit: 20 })
+        getDocuments({
+          page: initialDocumentPageRef.current,
+          limit: 20,
+          ownerId: workspaceOwnerId,
+        })
       );
       activeDocumentPageRequestRef.current = documentsRequest;
-      documentsRequest.then((action) => {
-        if (
-          requestVersion === documentPageRequestRef.current &&
-          getDocuments.fulfilled.match(action)
-        ) {
-          setDocumentPage(
-            action.payload?.pagination?.page || initialDocumentPageRef.current
-          );
-        }
-      });
+      documentsRequest
+        .then((action) => {
+          if (
+            requestVersion === documentPageRequestRef.current &&
+            getDocuments.fulfilled.match(action)
+          ) {
+            setDocumentPage(
+              action.payload?.pagination?.page || initialDocumentPageRef.current
+            );
+          }
+        })
+        .catch(swallowAbortError);
       return () => documentsRequest.abort();
     }
-  }, [dispatch, user]);
+  }, [dispatch, user, workspaceOwnerId]);
 
   useEffect(() => {
     if (!user) return undefined;
     const librariesRequest = requestDocumentLibraries();
+    librariesRequest.catch(swallowAbortError);
     return () => librariesRequest.abort();
   }, [requestDocumentLibraries, user]);
 
@@ -693,6 +1282,7 @@ export default function UserDashboard() {
 
   const handleUpload = (event) => {
     event.preventDefault();
+    if (isConnectedWorkspace) return;
     return uploadSelectedFile();
   };
 
@@ -764,7 +1354,10 @@ export default function UserDashboard() {
 
     let request;
     try {
-      request = dispatch(fetchDocumentPreview(documentItem._id));
+      request = dispatch(fetchDocumentPreview({
+        documentId: documentItem._id,
+        ownerId: getDocumentOwnerId(documentItem),
+      }));
       activePreviewRequestRef.current = request;
       const result = await request.unwrap();
       if (!result) return;
@@ -799,7 +1392,10 @@ export default function UserDashboard() {
     let objectUrl;
     let request;
     try {
-      request = dispatch(downloadDocument(documentItem._id));
+      request = dispatch(downloadDocument({
+        documentId: documentItem._id,
+        ownerId: getDocumentOwnerId(documentItem),
+      }));
       activeDownloadRequestRef.current = request;
       objectUrl = await request.unwrap();
       const link = document.createElement("a");
@@ -866,7 +1462,7 @@ export default function UserDashboard() {
   };
 
   const handleDelete = async () => {
-    if (!deleteTarget) return;
+    if (!deleteTarget || getDocumentOwnerId(deleteTarget) !== currentUserId) return;
 
     setIsDeleting(true);
     try {
@@ -897,6 +1493,7 @@ export default function UserDashboard() {
   };
 
   const openDeleteConfirmation = (documentItem) => {
+    if (getDocumentOwnerId(documentItem) !== currentUserId) return;
     pushOverlayHistory("delete", documentItem);
     setDeleteError("");
     setDeleteTarget(documentItem);
@@ -921,7 +1518,7 @@ export default function UserDashboard() {
     const restoreOverlay = (event) => {
       const overlay = event.state?.[DOCUMENT_OVERLAY_HISTORY_KEY];
       const savedView = event.state?.[DOCUMENT_VIEW_HISTORY_KEY];
-      if (savedView?.view === "browse" || savedView?.view === "organize") {
+      if (["browse", "organize", "share", "messages"].includes(savedView?.view)) {
         setDashboardView(savedView.view);
         if (Number.isInteger(savedView.page) && savedView.page > 0) {
           setDocumentPage(savedView.page);
@@ -969,6 +1566,12 @@ export default function UserDashboard() {
       closeOverlayLocally("delete");
       closeOverlayLocally("properties");
       if (!documentItem) return;
+      if (
+        overlay.type === "delete" &&
+        getDocumentOwnerId(documentItem) !== currentUserId
+      ) {
+        return;
+      }
 
       if (overlay.type === "preview") {
         void handlePreview(documentItem, { addHistory: false });
@@ -988,6 +1591,7 @@ export default function UserDashboard() {
     libraryDocuments,
     libraries,
     activeLibrary,
+    currentUserId,
     requestLibraryDocuments,
     closeOverlayLocally,
     handlePreview,
@@ -1061,6 +1665,44 @@ export default function UserDashboard() {
     void requestDocumentLibraries();
   };
 
+  const selectWorkspaceOwner = (ownerId) => {
+    if (!ownerId || ownerId === workspaceOwnerId) return;
+    activeDocumentPageRequestRef.current?.abort();
+    activeLibrariesRequestRef.current?.abort();
+    activeLibraryDocumentsRequestRef.current?.abort();
+    closeOverlayLocally("preview");
+    closeOverlayLocally("details");
+    closeOverlayLocally("properties");
+    closeOverlayLocally("delete");
+    setOpenDocumentMenuId(null);
+    setActiveLibrary(null);
+    setDocumentPage(1);
+    documentPageRef.current = 1;
+    initialDocumentPageRef.current = 1;
+    activeLibraryIdRef.current = null;
+    pendingLibraryIdRef.current = null;
+    dispatch(clearWorkspaceDocuments());
+    setWorkspaceOwnerId(ownerId);
+  };
+
+  const showShareWorkspace = () => {
+    if (dashboardView !== "share" || activeLibrary) {
+      pushDashboardViewHistory("share");
+    }
+    activeLibraryDocumentsRequestRef.current?.abort();
+    setDashboardView("share");
+    setActiveLibrary(null);
+  };
+
+  const showMessagesWorkspace = () => {
+    if (dashboardView !== "messages" || activeLibrary) {
+      pushDashboardViewHistory("messages");
+    }
+    activeLibraryDocumentsRequestRef.current?.abort();
+    setDashboardView("messages");
+    setActiveLibrary(null);
+  };
+
   const showAllDocuments = () => {
     if (dashboardView !== "browse" || activeLibrary) {
       pushDashboardViewHistory("browse");
@@ -1096,13 +1738,24 @@ export default function UserDashboard() {
       activeView={dashboardView}
       onAllDocuments={showAllDocuments}
       onLibrary={showDocumentLibrary}
+      onShare={showShareWorkspace}
+      onMessages={showMessagesWorkspace}
     >
+      {dashboardView === "share" ? (
+        <ShareWorkspace />
+      ) : dashboardView === "messages" ? (
+        <MessagesContent />
+      ) : (
       <div className="mx-auto max-w-[1200px] px-4 py-6 sm:px-6 lg:px-8 lg:py-10">
         <section aria-labelledby="documents-heading">
           <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h1 id="documents-heading" className="text-2xl font-semibold tracking-tight text-[#0F172A] sm:text-3xl">
-                {dashboardView === "organize" ? "People & documents" : "Your documents"}
+                {dashboardView === "organize"
+                  ? "People & documents"
+                  : isConnectedWorkspace && connectedAccount
+                    ? `${connectedAccount.userName}'s documents`
+                    : "Your documents"}
               </h1>
               <p className="mt-2 text-sm text-slate-500">
                 {dashboardView === "organize" && activeLibrary ? (
@@ -1118,27 +1771,68 @@ export default function UserDashboard() {
                   </>
                 )}
               </p>
+              {connectedAccount ? (
+                <div className="mt-4 flex flex-wrap items-center gap-2" role="group" aria-label="Choose whose documents to view">
+                  <button
+                    type="button"
+                    onClick={() => selectWorkspaceOwner(currentUserId)}
+                    aria-pressed={!isConnectedWorkspace}
+                    className={`min-h-10 rounded-lg border px-3 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${
+                      !isConnectedWorkspace
+                        ? "border-blue-200 bg-blue-50 text-blue-800"
+                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    My documents
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => selectWorkspaceOwner(connectedAccount.id)}
+                    aria-pressed={isConnectedWorkspace}
+                    className={`min-h-10 rounded-lg border px-3 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${
+                      isConnectedWorkspace
+                        ? "border-blue-200 bg-blue-50 text-blue-800"
+                        : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    {connectedAccount.userName}&apos;s documents
+                  </button>
+                  {isConnectedWorkspace ? (
+                    <span className="text-xs text-slate-500">
+                      View and manage; upload and delete are unavailable.
+                    </span>
+                  ) : null}
+                </div>
+              ) : connectionCheckError ? (
+                <p className="mt-3 text-sm text-slate-500" role="status">
+                  {connectionCheckError}
+                </p>
+              ) : null}
             </div>
-            <input
-              ref={fileInputRef}
-              id="document-upload"
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,application/pdf,image/jpeg,image/png,image/webp,image/gif"
-              className="sr-only"
-              onChange={handleFileChange}
-              disabled={uploading}
-              aria-label="Choose a document to upload"
-            />
-            <button
-              id="upload-document-button"
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#2878f0] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#1e63d6] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-            >
-              <Upload size={16} />
-              {uploading ? "Uploading…" : "Upload document"}
-            </button>
+            {!isConnectedWorkspace ? (
+              <>
+                <input
+                  ref={fileInputRef}
+                  id="document-upload"
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,application/pdf,image/jpeg,image/png,image/webp,image/gif"
+                  className="sr-only"
+                  onChange={handleFileChange}
+                  disabled={uploading}
+                  aria-label="Choose a document to upload"
+                />
+                <button
+                  id="upload-document-button"
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#2878f0] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#1e63d6] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                >
+                  <Upload size={16} />
+                  {uploading ? "Uploading…" : "Upload document"}
+                </button>
+              </>
+            ) : null}
           </div>
 
           {uploadValidationError && !selectedFile && (
@@ -1186,7 +1880,7 @@ export default function UserDashboard() {
                       <span>{libraryError.message || "We couldn’t load your document library."}</span>
                       <button
                         type="button"
-                        onClick={() => dispatch(getDocumentLibraries())}
+                        onClick={() => requestDocumentLibraries()}
                         className="min-h-10 rounded-full border border-rose-200 bg-white px-4 font-semibold"
                       >
                         Try again
@@ -1333,6 +2027,7 @@ export default function UserDashboard() {
                               </div>
                               <DocumentActionMenu
                                 documentItem={documentItem}
+                                canDelete={getDocumentOwnerId(documentItem) === currentUserId}
                                 open={openDocumentMenuId === documentId}
                                 menuRef={documentActionMenuRef}
                                 triggerRef={documentActionTriggerRef}
@@ -1361,8 +2056,14 @@ export default function UserDashboard() {
               </div>
             ) : emptyDocumentState && !documentError ? (
               <div className="rounded-2xl border border-slate-200 bg-white px-5 py-12 text-center">
-                <h2 className="text-lg font-semibold text-slate-900">No documents yet</h2>
-                <p className="mt-2 text-sm text-slate-500">Upload your first document to get started.</p>
+                <h2 className="text-lg font-semibold text-slate-900">
+                  {isConnectedWorkspace ? "No documents in this account" : "No documents yet"}
+                </h2>
+                <p className="mt-2 text-sm text-slate-500">
+                  {isConnectedWorkspace
+                    ? "There are no documents to show."
+                    : "Upload your first document to get started."}
+                </p>
               </div>
             ) : (
               <div className="space-y-2 sm:space-y-0 sm:divide-y sm:divide-slate-200 sm:rounded-2xl sm:border sm:border-slate-200 sm:bg-white sm:px-5">
@@ -1407,6 +2108,7 @@ export default function UserDashboard() {
                           </div>
                           <DocumentActionMenu
                             documentItem={documentItem}
+                            canDelete={getDocumentOwnerId(documentItem) === currentUserId}
                             open={openDocumentMenuId === documentId}
                             menuRef={documentActionMenuRef}
                             triggerRef={documentActionTriggerRef}
@@ -1459,6 +2161,7 @@ export default function UserDashboard() {
           </div>
         </section>
       </div>
+      )}
 
       {selectedFile && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4">
@@ -1740,6 +2443,7 @@ export default function UserDashboard() {
       {documentDetailsTarget ? (
         <DocumentDetailsDialog
           documentItem={documentDetailsTarget}
+          ownerId={getDocumentOwnerId(documentDetailsTarget)}
           onProcessingCheck={markProcessingCheck}
           onClose={closeDocumentDetails}
         />
@@ -1747,6 +2451,7 @@ export default function UserDashboard() {
       {propertiesTarget ? (
         <DocumentPropertiesDialog
           documentItem={propertiesTarget}
+          ownerId={getDocumentOwnerId(propertiesTarget)}
           ownerNames={ownerByDocumentId.get(getDocumentId(propertiesTarget)) || []}
           onClose={() => closeOverlay("properties")}
         />

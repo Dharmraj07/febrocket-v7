@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useDispatch, useSelector } from "react-redux";
 import { FileText, Pencil, RotateCw, Save, X } from "lucide-react";
+import { swallowAbortError } from "@/lib/api";
 import {
   getDocumentById,
   retryDocumentProcessing,
@@ -51,6 +52,7 @@ function safeError(error, fallback) {
 
 export default function DocumentDetailsDialog({
   documentItem,
+  ownerId,
   onClose,
   onProcessingCheck,
 }) {
@@ -69,6 +71,7 @@ export default function DocumentDetailsDialog({
   const statusRefreshRequestRef = useRef(null);
   const dialogRef = useRef(null);
   const documentId = getId(documentItem);
+  const documentOwnerId = ownerId || getId(documentItem?.userId);
   const document = getId(selected) === documentId ? selected : documentItem;
   const documentStatus = document?.status;
   const processingCheckKey = documentProcessingCheckKey(document);
@@ -92,7 +95,11 @@ export default function DocumentDetailsDialog({
       const timer = window.setTimeout(() => {
         checkedProcessingCycleRef.current = processingCheckKey;
         onProcessingCheck?.(processingCheckKey);
-        request = dispatch(getDocumentById(documentId));
+        request = dispatch(getDocumentById({
+          documentId,
+          ownerId: documentOwnerId,
+        }));
+        request.catch(swallowAbortError);
       }, delay);
       return () => {
         window.clearTimeout(timer);
@@ -104,11 +111,16 @@ export default function DocumentDetailsDialog({
       checkedProcessingCycleRef.current = processingCheckKey;
       onProcessingCheck?.(processingCheckKey);
     }
-    const request = dispatch(getDocumentById(documentId));
+    const request = dispatch(getDocumentById({
+      documentId,
+      ownerId: documentOwnerId,
+    }));
+    request.catch(swallowAbortError);
     return () => request.abort();
   }, [
     dispatch,
     documentId,
+    documentOwnerId,
     documentStatus,
     extractedDataAvailable,
     processingCheckDelay,
@@ -136,7 +148,10 @@ export default function DocumentDetailsDialog({
     setRetrying(true);
     setFeedback(null);
     try {
-      await dispatch(retryDocumentProcessing({ documentId })).unwrap();
+      await dispatch(retryDocumentProcessing({
+        documentId,
+        ownerId: documentOwnerId,
+      })).unwrap();
     } catch (error) {
       setFeedback({
         type: "error",
@@ -150,7 +165,10 @@ export default function DocumentDetailsDialog({
 
   const refreshStatus = async () => {
     setFeedback(null);
-    const request = dispatch(getDocumentById(documentId));
+    const request = dispatch(getDocumentById({
+      documentId,
+      ownerId: documentOwnerId,
+    }));
     statusRefreshRequestRef.current = request;
     try {
       await request.unwrap();
@@ -186,7 +204,11 @@ export default function DocumentDetailsDialog({
     setSaving(true);
     setFeedback(null);
     try {
-      await dispatch(updateDocumentExtractedData({ documentId, data: draft })).unwrap();
+      await dispatch(updateDocumentExtractedData({
+        documentId,
+        data: draft,
+        ownerId: documentOwnerId,
+      })).unwrap();
       setEditing(false);
       setFeedback({ type: "success", text: "Extracted information saved." });
     } catch (error) {

@@ -57,6 +57,12 @@ JWT_ACCESS_EXPIRY=15m
 JWT_REFRESH_EXPIRY=90d
 ```
 
+For every environment, configure either a strong `JWT_SECRET_KEY` or both
+`JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET`. Each configured signing secret
+must be at least 32 bytes and must not be a placeholder. The sample values
+above are not usable secrets. The service fails closed when these requirements
+are not met.
+
 Application and cookie settings:
 
 ```env
@@ -153,7 +159,7 @@ Admin routes require a valid access token with role `admin`.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/auth/admin/users` | List users with pagination and search |
+| GET | `/api/auth/admin/users` | List users with pagination and search; accepts comma-separated `ids` (up to 100) to look up specific users |
 | GET | `/api/auth/admin/users/:id` | Get one user |
 | PUT | `/api/auth/admin/users/:id` | Update user fields or role |
 | DELETE | `/api/auth/admin/users/:id` | Delete another user |

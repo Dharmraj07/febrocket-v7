@@ -42,7 +42,7 @@ async function resolveLibrary(req, res) {
 
   try {
     const library = await documentLibraryService.findOrCreateDocumentLibrary({
-      userId: req.user.id,
+      userId: req.workspaceOwnerId || req.user.id,
       name: req.body.name,
     });
     return res.status(200).json({ success: true, library });
@@ -67,7 +67,7 @@ async function attachDocument(req, res) {
     const library = await documentLibraryService.attachDocument({
       libraryId: req.params.libraryId,
       documentId: req.body.documentId,
-      userId: req.user.id,
+      userId: req.workspaceOwnerId || req.user.id,
     });
     return res.status(200).json({ success: true, library });
   } catch (error) {
@@ -77,7 +77,9 @@ async function attachDocument(req, res) {
 
 async function getLibraries(req, res) {
   try {
-    const libraries = await documentLibraryService.getUserLibraries(req.user.id);
+    const libraries = await documentLibraryService.getUserLibraries(
+      req.workspaceOwnerId || req.user.id,
+    );
     return res.status(200).json({ success: true, libraries });
   } catch (error) {
     return handleError(error, "Fetch document libraries", res);
@@ -90,7 +92,7 @@ async function getLibrary(req, res) {
   try {
     const library = await documentLibraryService.getUserLibrary({
       libraryId: req.params.libraryId,
-      userId: req.user.id,
+      userId: req.workspaceOwnerId || req.user.id,
     });
     if (!library) {
       return res.status(404).json({ success: false, message: "Document library not found." });
@@ -107,7 +109,7 @@ async function getLibraryDocuments(req, res) {
   try {
     const result = await documentLibraryService.getLibraryDocuments({
       libraryId: req.params.libraryId,
-      userId: req.user.id,
+      userId: req.workspaceOwnerId || req.user.id,
     });
     if (!result) {
       return res.status(404).json({ success: false, message: "Document library not found." });
@@ -134,7 +136,7 @@ async function renameLibrary(req, res) {
   try {
     const library = await documentLibraryService.updateLibraryName({
       libraryId: req.params.libraryId,
-      userId: req.user.id,
+      userId: req.workspaceOwnerId || req.user.id,
       name: req.body.name,
     });
     if (!library) {
@@ -148,6 +150,12 @@ async function renameLibrary(req, res) {
 
 async function deleteLibrary(req, res) {
   if (!validateLibraryId(req.params.libraryId, res)) return;
+  if (req.isConnectedWorkspace) {
+    return res.status(403).json({
+      success: false,
+      message: "You cannot delete a connected account's document library.",
+    });
+  }
 
   try {
     const library = await documentLibraryService.deleteUserLibrary({

@@ -1,5 +1,6 @@
 const express = require("express");
 const authMiddleware = require("../middleware/authMiddleware");
+const resolveWorkspaceOwner = require("../middleware/resolveWorkspaceOwner");
 const {
   resolveLibrary,
   attachDocument,
@@ -13,7 +14,7 @@ const {
 const router = express.Router();
 
 // Require an authenticated user for every document-library endpoint.
-router.use(authMiddleware());
+router.use(authMiddleware(), resolveWorkspaceOwner);
 
 // POST /api/document-library/resolve
 // Find or create the current user's person library by name.

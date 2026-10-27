@@ -3,6 +3,7 @@ const express = require("express");
 const router = express.Router();
 
 const authMiddleware = require("../middleware/authMiddleware");
+const resolveWorkspaceOwner = require("../middleware/resolveWorkspaceOwner");
 
 const {
   uploadToMemory,
@@ -41,7 +42,7 @@ const {
 // POST /api/documents/upload
 // ======================================================
 
-router.get("/events", authMiddleware(), streamDocumentEvents);
+router.get("/events", authMiddleware(), resolveWorkspaceOwner, streamDocumentEvents);
 
 router.post(
   "/upload",
@@ -186,18 +187,21 @@ router.delete(
 router.get(
   "/",
   authMiddleware(),
+  resolveWorkspaceOwner,
   getDocuments
 );
 
 router.post(
   "/:id/retry",
   authMiddleware(),
+  resolveWorkspaceOwner,
   retryDocumentProcessing
 );
 
 router.put(
   "/:id/data",
   authMiddleware(),
+  resolveWorkspaceOwner,
   updateDocumentExtractedData
 );
 
@@ -212,6 +216,7 @@ router.put(
 router.get(
   "/:id/preview",
   authMiddleware(),
+  resolveWorkspaceOwner,
   previewDocument
 );
 
@@ -226,6 +231,7 @@ router.get(
 router.get(
   "/:id/download",
   authMiddleware(),
+  resolveWorkspaceOwner,
   downloadDocument
 );
 
@@ -238,6 +244,7 @@ router.get(
 router.get(
   "/:id",
   authMiddleware(),
+  resolveWorkspaceOwner,
   getDocumentById
 );
 

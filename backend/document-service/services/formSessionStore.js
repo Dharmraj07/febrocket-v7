@@ -36,14 +36,15 @@ function createSession({ sessionId, userId, libraryId, url, title }) {
 }
 
 function getSession({ sessionId, userId, libraryId, url }) {
+  const now = Date.now();
   const session = sessions.get(sessionId);
-  if (!session || session.expiresAt <= Date.now()) {
+  if (!session || session.expiresAt <= now) {
     if (session) sessions.delete(sessionId);
     return null;
   }
   if (session.userId !== String(userId) || session.libraryId !== String(libraryId)) return null;
   if (url && new URL(url).origin !== session.origin) return null;
-  session.expiresAt = Date.now() + SESSION_TTL_MS;
+  session.expiresAt = now + SESSION_TTL_MS;
   return session;
 }
 

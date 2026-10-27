@@ -117,4 +117,34 @@ const passwordLimiter = rateLimit({
   },
 });
 
-module.exports = { authLimiter, passwordLimiter, RedisRateLimitStore };
+const shareCodeLimiter = rateLimit({
+  ...commonOptions,
+  windowMs: 60 * 1000,
+  limit: 10,
+  store: new RedisRateLimitStore("share-code"),
+  keyGenerator: (req) => `${req.user?.id || "anonymous"}:${getClientIp(req)}`,
+  message: {
+    success: false,
+    message: "Too many sharing-code requests. Please try again later.",
+  },
+});
+
+const shareVerificationLimiter = rateLimit({
+  ...commonOptions,
+  windowMs: 60 * 1000,
+  limit: 12,
+  store: new RedisRateLimitStore("share-verify"),
+  keyGenerator: (req) => `${req.user?.id || "anonymous"}:${getClientIp(req)}`,
+  message: {
+    success: false,
+    message: "Too many connection attempts. Please try again later.",
+  },
+});
+
+module.exports = {
+  authLimiter,
+  passwordLimiter,
+  shareCodeLimiter,
+  shareVerificationLimiter,
+  RedisRateLimitStore,
+};

@@ -1,6 +1,7 @@
-const test = require("node:test");
+const { mock, test } = require("node:test");
 const assert = require("node:assert/strict");
 const jwt = require("jsonwebtoken");
+const axios = require("axios");
 const config = require("../config");
 const app = require("../app");
 const Document = require("../models/Document");
@@ -430,6 +431,7 @@ test("document library routes authenticate and scope operations to the JWT user"
   const server = app.listen(0);
   const userId = "507f1f77bcf86cd799439011";
   const token = jwt.sign({ id: userId }, config.jwtAccessSecret);
+  const connectedUserId = "507f1f77bcf86cd799439099";
   const originalMethods = {
     findOrCreateDocumentLibrary: libraryService.findOrCreateDocumentLibrary,
     getUserLibraries: libraryService.getUserLibraries,
@@ -547,6 +549,65 @@ test("document library routes authenticate and scope operations to the JWT user"
     });
     assert.equal(removed.status, 200);
     assert.deepEqual(captured[6], ["delete", { libraryId, userId }]);
+
+    const authServiceMock = mock.method(axios, "get", async () => ({
+      data: {
+        data: {
+          connected: true,
+          role: "viewer",
+          user: { id: connectedUserId, userName: "connected" },
+        },
+      },
+    }));
+    try {
+      const connectedLibraries = await request(
+        `/api/document-library?ownerId=${connectedUserId}`,
+        { headers: authHeaders },
+      );
+      assert.equal(connectedLibraries.status, 200);
+      assert.deepEqual(captured[7], ["list", connectedUserId]);
+
+      const connectedRename = await request(
+        `/api/document-library/${libraryId}?ownerId=${connectedUserId}`,
+        {
+          method: "PATCH",
+          headers: authHeaders,
+          body: JSON.stringify({ name: "Connected Person" }),
+        },
+      );
+      assert.equal(connectedRename.status, 200);
+      assert.deepEqual(captured[8], [
+        "rename",
+        { libraryId, userId: connectedUserId, name: "Connected Person" },
+      ]);
+
+      const connectedAttach = await request(
+        `/api/document-library/${libraryId}/documents?ownerId=${connectedUserId}`,
+        {
+          method: "POST",
+          headers: authHeaders,
+          body: JSON.stringify({ documentId: "507f1f77bcf86cd799439013" }),
+        },
+      );
+      assert.equal(connectedAttach.status, 200);
+      assert.deepEqual(captured[9], [
+        "attach",
+        {
+          libraryId,
+          documentId: "507f1f77bcf86cd799439013",
+          userId: connectedUserId,
+        },
+      ]);
+
+      const forbiddenDelete = await request(
+        `/api/document-library/${libraryId}?ownerId=${connectedUserId}`,
+        { method: "DELETE", headers: authHeaders },
+      );
+      assert.equal(forbiddenDelete.status, 403);
+      assert.equal(captured.length, 10);
+    } finally {
+      authServiceMock.mock.restore();
+    }
 
     const invalidId = await request("/api/document-library/not-an-id", {
       headers: authHeaders,

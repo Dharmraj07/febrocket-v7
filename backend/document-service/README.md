@@ -66,21 +66,39 @@ All library routes require the same JWT authentication as document routes:
 
 | Method | Route | Purpose |
 | --- | --- | --- |
-| `POST` | `/api/document-library/resolve` | Find or create a person library by name |
-| `POST` | `/api/document-library/:libraryId/documents` | Attach an owned document |
-| `GET` | `/api/document-library` | List the authenticated user's libraries |
-| `GET` | `/api/document-library/:libraryId` | Get one owned library |
-| `GET` | `/api/document-library/:libraryId/documents` | List documents attached to an owned library |
-| `PATCH` | `/api/document-library/:libraryId` | Rename an owned library |
-| `DELETE` | `/api/document-library/:libraryId` | Delete the library relationship only |
+| `POST` | `/api/document-library/resolve` | Find or create a library for the selected account |
+| `POST` | `/api/document-library/:libraryId/documents` | Attach a document to a selected account's library |
+| `GET` | `/api/document-library` | List libraries for the selected account |
+| `GET` | `/api/document-library/:libraryId` | Get one library for the selected account |
+| `GET` | `/api/document-library/:libraryId/documents` | List documents attached to a selected account's library |
+| `PATCH` | `/api/document-library/:libraryId` | Rename a library for the selected account |
+| `DELETE` | `/api/document-library/:libraryId` | Delete the caller's own library relationship only |
 
 Deleting a library does not delete its `Document` records or R2 files.
+
+### Connected account access
+
+Existing document, document-library, document-data, and form-mapping endpoints
+accept an optional `ownerId` query parameter. When it identifies the caller's
+connected document owner, Document-Service verifies the relationship through
+the existing authenticated `GET /api/auth/share/connection` endpoint before
+serving or modifying that account's data. No new API routes are required.
+Connection verification fails closed if Auth-Service cannot be reached.
+
+Only the person who redeems the code can view, preview, download, retry
+processing, edit extracted information, and organize the code owner's libraries.
+These changes are saved to the owner's account. The owner cannot access the
+viewer's documents unless they redeem a separate code from that viewer. Uploads
+always belong to the signed-in account; document deletion, library deletion, and
+document-data deletion remain restricted to the signed-in account. Either person
+can disconnect, and switching to another account revokes the previous access.
 
 ## Form Mapping API
 
 `POST /api/forms/map` requires the existing user JWT cookie or bearer token.
-The request identifies one owned `libraryId`, website metadata, and detected
-website fields. Document-Service verifies ownership and projects bounded
+The request identifies one accessible `libraryId`, website metadata, and detected
+website fields. For a connected account's library, include its `ownerId` as a
+query parameter. Document-Service verifies access and projects bounded
 extracted data into canonical person facts with document provenance and
 field-specific source authority. The core vocabulary supports global English
 terminology for names, phone numbers, postal codes, administrative regions,
@@ -211,6 +229,12 @@ R2_ENDPOINT=https://<account>.r2.cloudflarestorage.com
 R2_PUBLIC_URL=https://your-public-url.example.com
 ```
 
+For every environment, configure either a strong `JWT_SECRET_KEY` or both
+`JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET`. Each configured signing secret
+must be at least 32 bytes and must not be a placeholder. Separate access and
+refresh secrets must differ. The service fails closed when these requirements
+are not met.
+
 > Note: If you are not using Cloudflare R2, ensure the relevant values are valid or the storage flow may fail gracefully depending on your setup.
 
 ## Running the Service
@@ -287,6 +311,10 @@ Form field:
 GET /api/documents?page=1&limit=20
 Authorization: Bearer <token>
 ```
+
+Append `ownerId=<connected-account-id>` to view a connected account's documents.
+Document-Service verifies the connection; clients cannot select arbitrary
+accounts.
 
 Paginated user document lists include metadata and `processingRequestedAt`, but
 omit the potentially large `data` and `rawText` fields. Fetch the document

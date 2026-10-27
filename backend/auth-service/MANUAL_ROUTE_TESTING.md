@@ -300,7 +300,102 @@ curl -i -b "$COOKIES" -c "$COOKIES" -X DELETE "$API/account"
 
 Expected status: `200`; missing/invalid token: `401`.
 
-## 5. OAuth Routes
+## 5. Share Routes
+
+These routes are mounted at `/api/auth/share` and require an authenticated account.
+Use two different registered users, log each user in, and save their cookies
+separately:
+
+```bash
+export SHARE_API="$BASE_URL/api/auth/share"
+export SHARE_COOKIES_A=/tmp/share-user-a-cookies.txt
+export SHARE_COOKIES_B=/tmp/share-user-b-cookies.txt
+
+curl -i -c "$SHARE_COOKIES_A" -X POST "$API/login" \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"<user-a-email>","password":"<user-a-password>"}'
+
+curl -i -c "$SHARE_COOKIES_B" -X POST "$API/login" \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"<user-b-email>","password":"<user-b-password>"}'
+```
+
+Replace the example credentials with the two accounts' credentials. The commands
+below send the authentication cookies from each account's cookie file.
+
+### `POST /api/auth/share/code`
+
+Generate a share code for user A:
+
+```bash
+curl -i -b "$SHARE_COOKIES_A" -X POST "$SHARE_API/code"
+```
+
+Expected status: `200`. The response includes a `data.code` and `data.expiresAt`;
+the code expires after 10 minutes. Save the code for the connect request:
+
+```bash
+export SHARE_CODE='<code-from-response>'
+```
+
+### `POST /api/auth/share/connect`
+
+Connect user B to user A with the code generated above:
+
+```bash
+curl -i -b "$SHARE_COOKIES_B" -X POST "$SHARE_API/connect" \
+  -H 'Content-Type: application/json' \
+  -d "{\"code\":\"$SHARE_CODE\"}"
+```
+
+Expected status: `200` with `data.connected: true`, `data.role: "viewer"`, and a
+safe public summary of user A. The code is single-use. A malformed, expired, or
+already-used code returns `400`. Redeeming a code replaces any previous connection
+for both accounts.
+
+### `GET /api/auth/share/connection`
+
+Check the connection from either account. User A, who generated the code, receives
+`role: "owner"`; user B, who redeemed it, receives `role: "viewer"`. Only user B
+can access user A's documents. User A cannot access user B's documents unless they
+redeem a separate code from user B.
+
+```bash
+curl -i -b "$SHARE_COOKIES_A" "$SHARE_API/connection"
+curl -i -b "$SHARE_COOKIES_B" "$SHARE_API/connection"
+```
+
+Expected status: `200` with `data.connected: true`, the role, and the other user's
+public summary. Before connecting or after disconnecting, `data.connected` is `false` and
+`data.user` is `null`.
+
+### `DELETE /api/auth/share/connection`
+
+Disconnect either account; the connection and viewer access are removed for both users:
+
+```bash
+curl -i -b "$SHARE_COOKIES_A" -X DELETE "$SHARE_API/connection"
+```
+
+Expected status: `200`. Repeat `GET /api/auth/share/connection` for both cookie files
+to verify that both report no connection.
+
+### `DELETE /api/auth/share/code`
+
+Generate a new code, then cancel it before it is used:
+
+```bash
+curl -i -b "$SHARE_COOKIES_A" -X POST "$SHARE_API/code"
+export SHARE_CODE='<new-code-from-response>'
+curl -i -b "$SHARE_COOKIES_A" -X DELETE "$SHARE_API/code"
+```
+
+Expected status: `200`. Attempting to connect with the cancelled code should return
+`400`.
+
+All share routes return `401` if called without a valid authenticated session.
+
+## 6. OAuth Routes
 
 These routes require configured provider credentials.
 
@@ -450,3 +545,8 @@ curl -i -b "$COOKIES" "$API/admin/users"
 - [ ] `GET /api/auth/admin/users/:id`
 - [ ] `PUT /api/auth/admin/users/:id`
 - [ ] `DELETE /api/auth/admin/users/:id`
+- [ ] `POST /api/auth/share/code`
+- [ ] `POST /api/auth/share/connect`
+- [ ] `GET /api/auth/share/connection`
+- [ ] `DELETE /api/auth/share/connection`
+- [ ] `DELETE /api/auth/share/code`

@@ -30,6 +30,30 @@ const UserSchema = new mongoose.Schema(
         message: "Profile picture must be an HTTPS Google profile image URL",
       },
     },
+    shareCodeHash: {
+      type: String,
+      default: null,
+      select: false,
+      index: true,
+      sparse: true,
+    },
+    shareCodeExpiresAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    connectedUserId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+      sparse: true,
+    },
+    connectionRole: {
+      type: String,
+      enum: ["owner", "viewer"],
+      default: null,
+    },
     password: {
       type: String,
       select: false,

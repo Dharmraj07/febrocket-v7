@@ -54,6 +54,38 @@ test("getDocuments requests and stores one paginated page", async () => {
   }
 });
 
+test("aborting getDocuments does not store a cancellation error", async () => {
+  const originalGet = api.get;
+  api.get = (_url, { signal }) =>
+    new Promise((_resolve, reject) => {
+      signal.addEventListener(
+        "abort",
+        () => {
+          const error = new Error("canceled");
+          error.name = "CanceledError";
+          error.code = "ERR_CANCELED";
+          reject(error);
+        },
+        { once: true }
+      );
+    });
+
+  try {
+    const store = configureStore({
+      reducer: { documents: documentReducer },
+    });
+    const request = store.dispatch(getDocuments());
+    request.abort();
+    const action = await request;
+
+    assert.equal(action.meta.aborted, true);
+    assert.equal(store.getState().documents.error, null);
+    assert.equal(store.getState().documents.isLoading, false);
+  } finally {
+    api.get = originalGet;
+  }
+});
+
 test("getDocuments corrects a requested page that no longer exists", async () => {
   const originalGet = api.get;
   const pages = [];

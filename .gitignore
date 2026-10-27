@@ -1,0 +1,12 @@
+# Local environment files; keep example templates commit-friendly.
+**/.env
+**/.env.*
+!**/.env.example
+
+# Private keys and local keystores.
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore

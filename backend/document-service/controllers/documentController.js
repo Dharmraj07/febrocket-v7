@@ -37,7 +37,10 @@ const streamDocumentEvents = async (req, res) => {
   try {
     unsubscribe = await documentEvents.subscribeToDocumentStatus((event) => {
       if (res.destroyed || res.writableEnded) return;
-      if (req.user.role !== "admin" && String(event.userId) !== String(req.user.id)) return;
+      if (
+        req.user.role !== "admin" &&
+        String(event.userId) !== String(req.workspaceOwnerId || req.user.id)
+      ) return;
       res.write(`id: ${event.eventId}\nevent: document-status\ndata: ${JSON.stringify(event)}\n\n`);
     });
 
@@ -177,7 +180,7 @@ const uploadDocument = async (req, res) => {
 
 const getDocuments = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.workspaceOwnerId || req.user.id;
     const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
     const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
     const result = await listDocuments({ userId, page, limit });
@@ -202,7 +205,7 @@ const getDocuments = async (req, res) => {
 
 const getDocumentById = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.workspaceOwnerId || req.user.id;
     const { id: documentId } = req.params;
 
     // Validate MongoDB ObjectId
@@ -244,7 +247,8 @@ const retryDocumentProcessing = async (req, res) => {
   }
 
   try {
-    const currentDocument = await findUserDocument(documentId, req.user.id);
+    const userId = req.workspaceOwnerId || req.user.id;
+    const currentDocument = await findUserDocument(documentId, userId);
     if (!currentDocument) {
       return res.status(404).json({ success: false, message: "Document not found." });
     }
@@ -259,7 +263,7 @@ const retryDocumentProcessing = async (req, res) => {
 
     const document = await retryQueuedDocument({
       documentId,
-      userId: req.user.id,
+      userId,
     });
     if (document) {
       return res.status(202).json({
@@ -269,7 +273,7 @@ const retryDocumentProcessing = async (req, res) => {
       });
     }
 
-    const latestDocument = await findUserDocument(documentId, req.user.id);
+    const latestDocument = await findUserDocument(documentId, userId);
     if (!latestDocument) {
       return res.status(404).json({ success: false, message: "Document not found." });
     }
@@ -309,7 +313,7 @@ const updateDocumentExtractedData = async (req, res) => {
 
   try {
     const document = await Document.findOneAndUpdate(
-      { _id: documentId, userId: req.user.id },
+      { _id: documentId, userId: req.workspaceOwnerId || req.user.id },
       { $set: { data: req.body.data } },
       { new: true, runValidators: true },
     ).lean();
@@ -333,7 +337,7 @@ const updateDocumentExtractedData = async (req, res) => {
 
 const previewDocument = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.workspaceOwnerId || req.user.id;
     const { id: documentId } = req.params;
 
     // Validate MongoDB ObjectId
@@ -408,7 +412,7 @@ const previewDocument = async (req, res) => {
 
 const downloadDocument = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.workspaceOwnerId || req.user.id;
     const { id: documentId } = req.params;
 
     // Validate MongoDB ObjectId

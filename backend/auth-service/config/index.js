@@ -2,15 +2,21 @@ require("dotenv").config();
 
 const port = Number(process.env.PORT || 3001);
 const nodeEnv = process.env.NODE_ENV || 'development';
-const fallbackJwtSecret =
-  process.env.JWT_SECRET_KEY ||
-  (nodeEnv === 'production' ? null : 'your_name');
-const jwtAccessSecret = process.env.JWT_ACCESS_SECRET || fallbackJwtSecret;
-const jwtRefreshSecret = process.env.JWT_REFRESH_SECRET || fallbackJwtSecret;
+const configuredJwtSecret = process.env.JWT_SECRET_KEY || null;
+const jwtAccessSecret = process.env.JWT_ACCESS_SECRET || configuredJwtSecret;
+const jwtRefreshSecret = process.env.JWT_REFRESH_SECRET || configuredJwtSecret;
+const isStrongJwtSecret = (secret) =>
+  typeof secret === "string" &&
+  Buffer.byteLength(secret, "utf8") >= 32 &&
+  !/(replace|your|example|placeholder|change.?me|default)/i.test(secret);
 
-if (nodeEnv === 'production' && (!jwtAccessSecret || !jwtRefreshSecret)) {
+if (
+  !isStrongJwtSecret(jwtAccessSecret) ||
+  !isStrongJwtSecret(jwtRefreshSecret) ||
+  (!configuredJwtSecret && jwtAccessSecret === jwtRefreshSecret)
+) {
   throw new Error(
-    'JWT_ACCESS_SECRET and JWT_REFRESH_SECRET (or JWT_SECRET_KEY) must be configured in production.',
+    "JWT_ACCESS_SECRET and JWT_REFRESH_SECRET (or JWT_SECRET_KEY) must be explicitly configured with non-placeholder values of at least 32 bytes; separate access and refresh secrets must differ."
   );
 }
 
@@ -36,7 +42,7 @@ module.exports = {
   port,
   mongoUri: process.env.MONGO_URI || null,
   redisUrl: process.env.REDIS_URL || null,
-  jwtSecret: fallbackJwtSecret || jwtAccessSecret,
+  jwtSecret: configuredJwtSecret || jwtAccessSecret,
   jwtAccessSecret,
   jwtRefreshSecret,
   jwtExpiry: process.env.JWT_EXPIRY || '18h',

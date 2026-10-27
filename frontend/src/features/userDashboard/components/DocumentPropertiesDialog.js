@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarDays, FileText, HardDrive, UserRound, X } from "lucide-react";
 import { useDispatch, useSelector } from "react-redux";
+import { swallowAbortError } from "@/lib/api";
 import {
   getDocumentById,
   selectDocumentError,
@@ -13,7 +14,11 @@ import {
 import { documentStatusLabel } from "@/features/document/documentPresentation";
 
 function getDocumentId(documentItem) {
-  return String(documentItem?._id || documentItem?.id || "");
+  return String(
+    documentItem?._id ||
+    documentItem?.id ||
+    (typeof documentItem === "string" ? documentItem : "")
+  );
 }
 
 function formatDate(date) {
@@ -50,6 +55,7 @@ function Property({ label, value, icon: Icon }) {
 
 export default function DocumentPropertiesDialog({
   documentItem,
+  ownerId,
   ownerNames = [],
   onClose,
 }) {
@@ -60,6 +66,7 @@ export default function DocumentPropertiesDialog({
   const requestError = useSelector(selectDocumentError);
   const dialogRef = useRef(null);
   const documentId = getDocumentId(documentItem);
+  const documentOwnerId = ownerId || getDocumentId(documentItem?.userId);
   const document =
     getDocumentId(selectedDocument) === documentId
       ? selectedDocument
@@ -71,10 +78,14 @@ export default function DocumentPropertiesDialog({
     extractedData?.type;
 
   useEffect(() => {
-    const request = dispatch(getDocumentById(documentId));
+    const request = dispatch(getDocumentById({
+      documentId,
+      ownerId: documentOwnerId,
+    }));
+    request.catch(swallowAbortError);
     dialogRef.current?.focus();
     return () => request.abort();
-  }, [dispatch, documentId]);
+  }, [dispatch, documentId, documentOwnerId]);
 
   useEffect(() => {
     if (requestError?.status === 401) router.replace("/");

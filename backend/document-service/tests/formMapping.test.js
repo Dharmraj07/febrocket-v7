@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const jwt = require("jsonwebtoken");
 const config = require("../config");
 const app = require("../app");
-const DocumentLibrary = require("../models/DocumentLibrary");
+const documentLibraryService = require("../services/documentLibraryService");
 const formMappingService = require("../services/formMappingService");
 const {
   createFormSession,
@@ -81,7 +81,11 @@ test("validates the form mapping request without trusting a request-body user ID
 
 test("creates owner-scoped sessions and stores explicit answers without storing form values in feedback", async () => {
   const library = { _id: libraryId, userId, name: "Profile", documents: [] };
-  const restore = replace(DocumentLibrary, "findById", () => ({ lean: async () => library }));
+  const restore = replace(
+    documentLibraryService,
+    "getUserLibrary",
+    async () => library,
+  );
   formSessionStore.clearForTests();
   try {
     const createResponse = response();
@@ -170,7 +174,7 @@ test("passes only session-resolved answers into the existing mapping endpoint", 
   const sessionId = "map-session";
   let received;
   const restores = [
-    replace(DocumentLibrary, "findById", () => ({ lean: async () => library })),
+    replace(documentLibraryService, "getUserLibrary", async () => library),
     replace(formMappingService, "mapFormFields", async (payload) => {
       received = payload;
       return [];
@@ -303,7 +307,7 @@ test("maps an owned library directly through Document-Service and returns sugges
   };
   let received;
   const restores = [
-    replace(DocumentLibrary, "findById", () => ({ lean: async () => library })),
+    replace(documentLibraryService, "getUserLibrary", async () => library),
     replace(formMappingService, "mapFormFields", async (payload) => {
       received = payload;
       return [{
@@ -345,11 +349,9 @@ test("maps an owned library directly through Document-Service and returns sugges
 });
 
 test("rejects a library owned by a different user before running Gemini", async () => {
-  const originalFind = DocumentLibrary.findById;
+  const originalGetUserLibrary = documentLibraryService.getUserLibrary;
   const originalMap = formMappingService.mapFormFields;
-  DocumentLibrary.findById = () => ({
-    lean: async () => ({ _id: libraryId, userId: "507f1f77bcf86cd799439099", documents: [] }),
-  });
+  documentLibraryService.getUserLibrary = async () => null;
   formMappingService.mapFormFields = async () => {
     throw new Error("Should not call Gemini for a foreign library.");
   };
@@ -357,18 +359,21 @@ test("rejects a library owned by a different user before running Gemini", async 
   try {
     const res = response();
     await mapFormFields(request(), res);
-    assert.equal(res.statusCode, 403);
+    assert.equal(res.statusCode, 404);
     assert.equal(res.body.success, false);
   } finally {
-    DocumentLibrary.findById = originalFind;
+    documentLibraryService.getUserLibrary = originalGetUserLibrary;
     formMappingService.mapFormFields = originalMap;
   }
 });
 
 test("returns success with no fields when no website fields were detected", async () => {
-  const originalFind = DocumentLibrary.findById;
-  DocumentLibrary.findById = () => ({
-    lean: async () => ({ _id: libraryId, userId, name: "Dharm", documents: [] }),
+  const originalGetUserLibrary = documentLibraryService.getUserLibrary;
+  documentLibraryService.getUserLibrary = async () => ({
+    _id: libraryId,
+    userId,
+    name: "Dharm",
+    documents: [],
   });
   try {
     const res = response();
@@ -376,17 +381,20 @@ test("returns success with no fields when no website fields were detected", asyn
     assert.equal(res.statusCode, 200);
     assert.deepEqual(res.body.fields, []);
   } finally {
-    DocumentLibrary.findById = originalFind;
+    documentLibraryService.getUserLibrary = originalGetUserLibrary;
   }
 });
 
 test("public form-mapping route uses existing JWT authentication and route mount", async () => {
   const server = app.listen(0);
-  const originalFind = DocumentLibrary.findById;
+  const originalGetUserLibrary = documentLibraryService.getUserLibrary;
   const originalMap = formMappingService.mapFormFields;
   const token = jwt.sign({ id: userId }, config.jwtAccessSecret);
-  DocumentLibrary.findById = () => ({
-    lean: async () => ({ _id: libraryId, userId, name: "Dharm", documents: [] }),
+  documentLibraryService.getUserLibrary = async () => ({
+    _id: libraryId,
+    userId,
+    name: "Dharm",
+    documents: [],
   });
   formMappingService.mapFormFields = async () => [];
 
@@ -410,7 +418,7 @@ test("public form-mapping route uses existing JWT authentication and route mount
     assert.equal(authenticated.status, 200);
     assert.deepEqual((await authenticated.json()).fields, []);
   } finally {
-    DocumentLibrary.findById = originalFind;
+    documentLibraryService.getUserLibrary = originalGetUserLibrary;
     formMappingService.mapFormFields = originalMap;
     await new Promise((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));

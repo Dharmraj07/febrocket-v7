@@ -61,6 +61,9 @@ verified by the payment service.
 The shared workspace navigation separates document actions from account
 management. Signed-in personal users can manage profile details, password
 security, preferences, and account deletion from `/settings`; the same
-responsive navigation is used on the dashboard and support page.
-Authentication is cookie-based through the shared Axios client, and ownership
-is enforced by the document service.
+responsive navigation is used on the dashboard and support page. The dashboard's
+Share section uses the existing authenticated `/api/auth/share/*` endpoints to
+generate one-time connection codes, connect accounts, and disconnect accounts.
+Redeeming a code grants one-way access to the code owner's documents only;
+connected viewers cannot upload or delete. Authentication is cookie-based
+through the shared Axios client, and access is verified by the document service.

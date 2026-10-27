@@ -1,6 +1,6 @@
 const crypto = require("node:crypto");
 const mongoose = require("mongoose");
-const DocumentLibrary = require("../models/DocumentLibrary");
+const documentLibraryService = require("../services/documentLibraryService");
 const { prepareMappingDocuments } = require("../services/formMappingPayload");
 const { classifyField, extractCanonicalFacts, relevantFactsForField } = require("../services/personFacts");
 const formMappingService = require("../services/formMappingService");
@@ -18,9 +18,7 @@ function requireUser(req, res) {
 
 async function ownedLibrary(libraryId, userId) {
   if (typeof libraryId !== "string" || !mongoose.Types.ObjectId.isValid(libraryId)) return null;
-  const library = await DocumentLibrary.findById(libraryId).lean();
-  if (!library || String(library.userId) !== userId) return null;
-  return library;
+  return documentLibraryService.getUserLibrary({ libraryId, userId });
 }
 
 function validateHttpUrl(url) {
@@ -56,7 +54,10 @@ async function createFormSession(req, res) {
   }
 
   try {
-    const library = await ownedLibrary(req.body.libraryId, userId);
+    const library = await ownedLibrary(
+      req.body.libraryId,
+      req.workspaceOwnerId || userId,
+    );
     if (!library) {
       return res.status(404).json({
         success: false,
@@ -178,7 +179,10 @@ async function getFormContext(req, res) {
     });
   }
   try {
-    const library = await ownedLibrary(authorized.session.libraryId, authorized.userId);
+    const library = await ownedLibrary(
+      authorized.session.libraryId,
+      req.workspaceOwnerId || authorized.userId,
+    );
     if (!library) {
       return res.status(404).json({
         success: false,
@@ -404,12 +408,12 @@ async function mapFormFields(req, res) {
   }
 
   try {
-    const library = await DocumentLibrary.findById(req.body.libraryId).lean();
+    const library = await documentLibraryService.getUserLibrary({
+      libraryId: req.body.libraryId,
+      userId: req.workspaceOwnerId || userId,
+    });
     if (!library) {
       return res.status(404).json({ success: false, message: "Document library not found." });
-    }
-    if (String(library.userId) !== String(userId)) {
-      return res.status(403).json({ success: false, message: "Access denied." });
     }
     let session;
     if (req.body.sessionId) {

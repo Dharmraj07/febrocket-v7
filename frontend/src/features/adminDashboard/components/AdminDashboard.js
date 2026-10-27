@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -16,8 +16,10 @@ import {
   FileText,
   Files,
   Image as ImageIcon,
+  LoaderCircle,
   LogOut,
   Menu,
+  MessageSquareText,
   Pencil,
   Search,
   ShieldCheck,
@@ -27,6 +29,7 @@ import {
   X,
 } from "lucide-react";
 import { logoutUser, selectAuth } from "@/features/auth/authSlice";
+import { api } from "@/lib/api";
 import {
   clearAdminDashboardError,
   clearAdminDashboardMessage,
@@ -78,6 +81,7 @@ import { subscribeToDocumentProcessingEvents } from "@/features/document/documen
 const navigation = [
   { id: "users", label: "Users", icon: Users },
   { id: "documents", label: "Documents", icon: Files },
+  { id: "messages", label: "Messages", icon: MessageSquareText },
 ];
 const fileTypes = new Set([
   "application/pdf",
@@ -267,6 +271,22 @@ export default function AdminDashboard() {
   const [notice, setNotice] = useState(null);
   const [confirmation, setConfirmation] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [messageConversations, setMessageConversations] = useState([]);
+  const [selectedMessageConversationId, setSelectedMessageConversationId] = useState("");
+  const [messageThread, setMessageThread] = useState([]);
+  const [messageReply, setMessageReply] = useState("");
+  const [messageListState, setMessageListState] = useState("idle");
+  const [messageListError, setMessageListError] = useState("");
+  const [messageThreadError, setMessageThreadError] = useState("");
+  const [messageReadError, setMessageReadError] = useState("");
+  const [messageReplyError, setMessageReplyError] = useState("");
+  const [messageListLoading, setMessageListLoading] = useState(false);
+  const [messageThreadLoading, setMessageThreadLoading] = useState(false);
+  const [messageSending, setMessageSending] = useState(false);
+  const [messageThreadRetry, setMessageThreadRetry] = useState(0);
+  const [mobileAdminThreadOpen, setMobileAdminThreadOpen] = useState(false);
+  const selectedMessageConversationIdRef = useRef("");
+  const messageListLoadedRef = useRef(false);
   const [downloadingId, setDownloadingId] = useState("");
   const [retryingId, setRetryingId] = useState("");
   const retryLock = useRef(new Set());
@@ -385,6 +405,122 @@ export default function AdminDashboard() {
     documentUserId,
     documentPage,
   ]);
+
+  const loadAdminConversations = useCallback(async () => {
+    setMessageListLoading(true);
+    setMessageListError("");
+    if (!messageListLoadedRef.current) setMessageListState("loading");
+    try {
+      const response = await api.get("/api/messages/conversations", {
+        params: { page: 1, limit: 100 },
+      });
+      const conversations = response?.data?.conversations;
+      if (!Array.isArray(conversations)) {
+        throw new Error("The conversations response was not a list.");
+      }
+      const getConversationUserId = (conversation) =>
+        String(conversation?.userId?._id || conversation?.userId || "");
+      const userIds = [
+        ...new Set(
+          conversations.map(getConversationUserId).filter(Boolean)
+        ),
+      ];
+      let usersById = new Map();
+      if (userIds.length) {
+        const usersResponse = await api.get("/api/auth/admin/users", {
+          params: { ids: userIds.join(","), limit: userIds.length },
+        });
+        const users = usersResponse?.data?.users;
+        if (!Array.isArray(users)) {
+          throw new Error("The users response was not a list.");
+        }
+        usersById = new Map(
+          users.map((user) => [String(user?._id || user?.id || ""), user])
+        );
+      }
+      const conversationsWithEmails = conversations.map((conversation) => {
+        const userId = getConversationUserId(conversation);
+        return {
+          ...conversation,
+          userEmail: usersById.get(userId)?.email || "",
+        };
+      });
+      setMessageConversations(conversationsWithEmails);
+      messageListLoadedRef.current = true;
+      setMessageListState("ready");
+      const currentId = selectedMessageConversationIdRef.current;
+      const selectedConversation = conversationsWithEmails.find(
+        (conversation) => String(conversation?._id || conversation?.id || "") === currentId
+      );
+      const nextId = selectedConversation
+        ? currentId
+        : String(conversationsWithEmails[0]?._id || conversationsWithEmails[0]?.id || "");
+      selectedMessageConversationIdRef.current = nextId;
+      setSelectedMessageConversationId(nextId);
+      setMobileAdminThreadOpen(false);
+      if (nextId !== currentId) {
+        setMessageThread([]);
+        setMessageThreadError("");
+      }
+    } catch (error) {
+      const status = error?.response?.status;
+      setMessageListError(
+        status === 401
+          ? "Your session may have expired. Sign in again, then retry."
+          : status === 403
+            ? "You do not have permission to view the support inbox."
+            : "Could not load messages. Try again."
+      );
+      if (!messageListLoadedRef.current) setMessageListState("error");
+    } finally {
+      setMessageListLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeSection !== "messages") return undefined;
+    void Promise.resolve().then(loadAdminConversations);
+    return undefined;
+  }, [activeSection, loadAdminConversations]);
+
+  useEffect(() => {
+    if (activeSection !== "messages" || !selectedMessageConversationId) return undefined;
+
+    let ignore = false;
+    void (async () => {
+      setMessageThreadLoading(true);
+      setMessageThreadError("");
+      setMessageReadError("");
+      try {
+        const response = await api.get(`/api/messages/conversations/${selectedMessageConversationId}/messages`, {
+          params: { page: 1, limit: 100 },
+        });
+        if (!Array.isArray(response?.data?.messages)) {
+          throw new Error("The messages response was not a list.");
+        }
+        if (!ignore) {
+          setMessageThread(response.data.messages);
+          try {
+            await api.patch(`/api/messages/conversations/${selectedMessageConversationId}/read`);
+          } catch {
+            if (!ignore) setMessageReadError("Messages could not be marked as read.");
+          }
+        }
+      } catch {
+        if (!ignore) {
+          setMessageThreadError("Could not load this conversation. Try again.");
+        }
+      } finally {
+        if (!ignore) {
+          setMessageThreadLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      ignore = true;
+    };
+  }, [activeSection, messageThreadRetry, selectedMessageConversationId]);
 
   useEffect(() => {
     if ((!isViewingUser && activeSection !== "documents") || documentDetailId) {
@@ -600,7 +736,7 @@ export default function AdminDashboard() {
     dispatch(clearAdminDashboardError());
   };
 
-  const refreshCurrentDocuments = () => {
+  const refreshCurrentDocuments = useCallback(() => {
     if (activeSection === "users") {
       if (selectedUserId) {
         void dispatch(
@@ -623,7 +759,15 @@ export default function AdminDashboard() {
       );
     }
     void dispatch(getDocumentStats());
-  };
+  }, [
+    activeSection,
+    debouncedDocumentName,
+    dispatch,
+    documentFilters,
+    documentPage,
+    selectedUserId,
+    userDocumentPage,
+  ]);
 
   useEffect(() => {
     if (!adminUser) return undefined;
@@ -649,6 +793,7 @@ export default function AdminDashboard() {
     documentStatus,
     documentTo,
     documentUserId,
+    refreshCurrentDocuments,
     selectedUserId,
     userDocumentPage,
   ]);
@@ -1057,6 +1202,225 @@ export default function AdminDashboard() {
     </section>
   );
 
+  const renderMessages = () => {
+    const selectedConversation = messageConversations.find(
+      (conversation) => String(conversation?._id || conversation?.id || "") === selectedMessageConversationId
+    );
+
+    const handleSendReply = async (event) => {
+      event.preventDefault();
+      const content = messageReply.trim();
+      if (!selectedMessageConversationId || !content || messageSending) return;
+      setMessageSending(true);
+      setMessageReplyError("");
+      try {
+        const result = await api.post(
+          `/api/messages/conversations/${selectedMessageConversationId}/messages`,
+          { content }
+        );
+        const nextMessage = result?.data?.message;
+        if (!nextMessage) throw new Error("The send message response was incomplete.");
+        setMessageThread((current) => [...current, nextMessage]);
+        setMessageConversations((current) =>
+          current.map((conversation) => {
+            const conversationId = String(conversation?._id || conversation?.id || "");
+            if (conversationId !== selectedMessageConversationId) return conversation;
+            return {
+              ...conversation,
+              lastMessagePreview: content.slice(0, 160),
+              lastMessageAt: new Date().toISOString(),
+            };
+          })
+        );
+        setMessageReply("");
+      } catch (error) {
+        setMessageReplyError(error?.response?.data?.message || "Could not send reply. Try again.");
+      } finally {
+        setMessageSending(false);
+      }
+    };
+
+    const selectAdminConversation = (conversation) => {
+      const conversationId = String(conversation?._id || conversation?.id || "");
+      if (conversationId === selectedMessageConversationId) {
+        setMobileAdminThreadOpen(Boolean(conversation));
+        return;
+      }
+      selectedMessageConversationIdRef.current = conversationId;
+      setSelectedMessageConversationId(conversationId);
+      setMobileAdminThreadOpen(Boolean(conversation));
+      setMessageThread([]);
+      setMessageReply("");
+      setMessageThreadError("");
+      setMessageReadError("");
+      setMessageReplyError("");
+    };
+
+    return (
+      <section className="overflow-hidden border-y border-slate-200 bg-white">
+        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+          <h2 className="text-sm font-semibold text-slate-900">Messages</h2>
+          <button
+            type="button"
+            onClick={() => void loadAdminConversations()}
+            disabled={messageListLoading}
+            className="min-h-9 px-2 text-xs font-medium text-slate-500 hover:text-blue-700 disabled:opacity-60"
+          >
+            {messageListLoading && messageConversations.length ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
+
+        {messageListError ? (
+          <div className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm" role={messageConversations.length ? "status" : "alert"}>
+            <span className={messageConversations.length ? "text-amber-800" : "text-red-700"}>
+              {messageListError}
+            </span>
+            <button type="button" onClick={() => void loadAdminConversations()} className="font-semibold text-blue-700 hover:underline">
+              Try again
+            </button>
+          </div>
+        ) : null}
+
+        {messageListState === "loading" ? (
+          <p className="px-4 py-5 text-sm text-slate-500" role="status">Loading messages…</p>
+        ) : messageListState === "error" ? null : !messageConversations.length ? (
+          <div className="py-8 text-center">
+            <MessageSquareText size={22} className="mx-auto text-slate-400" aria-hidden="true" />
+            <p className="mt-3 text-sm font-medium text-slate-700">No messages yet</p>
+          </div>
+        ) : (
+          <div className="grid min-h-[min(70vh,680px)] lg:grid-cols-[320px_minmax(0,1fr)]">
+            <aside className={`${mobileAdminThreadOpen ? "hidden" : ""} border-r border-slate-100 lg:block`}>
+              <ul className="divide-y divide-slate-100">
+                {messageConversations.map((conversation) => {
+                  const conversationId = String(conversation?._id || conversation?.id || "");
+                  const isActive = conversationId === selectedMessageConversationId;
+                  return (
+                    <li key={conversationId}>
+                      <button
+                        type="button"
+                        onClick={() => selectAdminConversation(conversation)}
+                        aria-current={isActive ? "true" : undefined}
+                        className={`flex min-h-[72px] w-full items-center gap-3 px-3 py-3 text-left transition ${isActive ? "bg-slate-100" : "hover:bg-slate-50"}`}
+                      >
+                        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500">
+                          <CircleUserRound size={20} aria-hidden="true" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-center justify-between gap-2">
+                            <span className="truncate text-sm font-medium text-slate-900">{conversation.userEmail || "Unknown user"}</span>
+                            <span className="shrink-0 text-[11px] text-slate-400">
+                              {conversation.lastMessageAt ? formatDate(conversation.lastMessageAt) : ""}
+                            </span>
+                          </span>
+                          <span className="mt-1 flex items-center justify-between gap-2">
+                            <span className="truncate text-sm text-slate-500">{conversation.lastMessagePreview || "No messages yet."}</span>
+                          {conversation.unreadCount > 0 ? (
+                            <span className="h-2 w-2 shrink-0 rounded-full bg-blue-600" aria-label="Unread messages">
+                            </span>
+                          ) : null}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </aside>
+
+            <div className={`${mobileAdminThreadOpen ? "flex" : "hidden lg:flex"} min-h-[460px] min-w-0 flex-col`}>
+              {!selectedConversation ? (
+                <div className="flex h-full min-h-[460px] flex-col items-center justify-center text-sm text-slate-500">
+                  <MessageSquareText size={22} aria-hidden="true" />
+                  <p className="mt-3 font-medium text-slate-700">Your messages</p>
+                  <p className="mt-1">Choose a conversation to view the thread.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="flex min-h-14 items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-900">{selectedConversation.userEmail || "Unknown user"}</h3>
+                      <p className="mt-0.5 text-xs text-slate-500">{selectedConversation.status === "closed" ? "Closed" : "User conversation"}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => selectAdminConversation(null)}
+                      className="inline-flex min-h-10 items-center gap-2 rounded-lg px-2 text-sm font-medium text-slate-600 hover:bg-slate-50 lg:hidden"
+                    >
+                      <ArrowLeft size={16} aria-hidden="true" /> Back
+                    </button>
+                  </div>
+
+                  {messageThreadLoading ? <p className="px-4 py-3 text-sm text-slate-500" role="status">Loading messages…</p> : null}
+                  {messageThreadError ? (
+                    <p className="flex items-center gap-3 px-4 py-3 text-sm text-red-700" role="alert">
+                      {messageThreadError}
+                      <button type="button" onClick={() => setMessageThreadRetry((current) => current + 1)} className="font-semibold text-blue-700 hover:underline">Retry</button>
+                    </p>
+                  ) : null}
+                  {messageReadError ? <p className="px-4 py-2 text-xs text-amber-800" role="status">{messageReadError}</p> : null}
+                  <div className="flex max-h-[520px] min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
+                    {!messageThreadLoading && !messageThreadError && messageThread.length ? (
+                      messageThread.map((item) => {
+                        const isUser = item.senderRole === "user";
+                        return (
+                          <div key={String(item._id || item.id || `${item.createdAt}-${item.content}`)} className={`flex ${isUser ? "justify-start" : "justify-end"}`}>
+                            <div className={`max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-3 py-2 ${isUser ? "bg-slate-100 text-slate-800" : "bg-blue-600 text-white"}`}>
+                              <p className="text-sm leading-6">{item.content}</p>
+                              <div className={`mt-1 text-[11px] ${isUser ? "text-slate-500" : "text-slate-300"}`}>
+                                {formatDate(item.createdAt)}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : !messageThreadLoading && !messageThreadError ? <p className="py-8 text-center text-sm text-slate-500">No messages yet.</p> : null}
+                  </div>
+
+                  <form onSubmit={handleSendReply} className="sticky bottom-0 border-t border-slate-100 bg-white p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+                    <label className="sr-only" htmlFor="admin-message-reply">Reply</label>
+                    <div className="flex items-end gap-2">
+                      <textarea
+                        id="admin-message-reply"
+                        value={messageReply}
+                        onChange={(event) => setMessageReply(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (
+                            event.key !== "Enter" ||
+                            event.shiftKey ||
+                            event.nativeEvent.isComposing
+                          ) {
+                            return;
+                          }
+                          event.preventDefault();
+                          event.currentTarget.form?.requestSubmit();
+                        }}
+                        rows={1}
+                        disabled={selectedConversation.status === "closed" || messageThreadLoading}
+                        className="max-h-28 min-h-11 flex-1 resize-y rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none focus:border-blue-500 focus:bg-white disabled:cursor-not-allowed disabled:bg-slate-50"
+                        placeholder={selectedConversation.status === "closed" ? "This conversation is closed." : "Write a reply... (Enter to send)"}
+                        maxLength={5000}
+                      />
+                      <button
+                        type="submit"
+                        disabled={messageSending || !messageReply.trim() || selectedConversation.status === "closed"}
+                        aria-label="Send reply"
+                        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:text-slate-300"
+                      >
+                        {messageSending ? <LoaderCircle size={18} className="animate-spin" /> : <MessageSquareText size={18} />}
+                      </button>
+                    </div>
+                    {messageReplyError ? <p className="mt-2 text-xs text-red-700" role="alert">{messageReplyError}</p> : null}
+                  </form>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+      </section>
+    );
+  };
+
   const renderUserDetails = () => (
     <>
       <button
@@ -1451,12 +1815,16 @@ export default function AdminDashboard() {
                     ? selectedUser?.userName || "User account"
                     : activeSection === "users"
                       ? "Manage users"
-                      : "Manage documents"}
+                      : activeSection === "messages"
+                        ? "Support inbox"
+                        : "Manage documents"}
                 </h1>
                 <p className="mt-2 max-w-2xl text-sm text-slate-600">
                   {isViewingUser
                     ? selectedUser?.email || "Review this account and its documents."
-                    : "A clear view of the accounts and files that need your attention."}
+                    : activeSection === "messages"
+                      ? "Monitor and respond to user questions and support threads."
+                      : "A clear view of the accounts and files that need your attention."}
                 </p>
               </div>
               {!isViewingUser && activeSection !== "users" ? (
@@ -1494,7 +1862,9 @@ export default function AdminDashboard() {
               ? selectedUserId
                 ? renderUserDetails()
                 : renderUserList()
-              : renderDocuments()}
+              : activeSection === "messages"
+                ? renderMessages()
+                : renderDocuments()}
           </div>
         </div>
       </div>

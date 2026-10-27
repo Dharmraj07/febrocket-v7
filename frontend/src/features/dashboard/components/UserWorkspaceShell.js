@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -12,10 +12,13 @@ import {
   Heart,
   LogOut,
   Menu,
+  MessageSquareText,
+  Share2,
   Settings,
   X,
 } from "lucide-react";
 import { logoutUser } from "@/features/auth/authSlice";
+import { api } from "@/lib/api";
 import ProfileAvatar from "@/components/ProfileAvatar";
 
 export default function UserWorkspaceShell({
@@ -23,16 +26,52 @@ export default function UserWorkspaceShell({
   children,
   onAllDocuments,
   onLibrary,
+  onShare,
+  onMessages,
   activeView = "browse",
 }) {
   const pathname = usePathname();
   const router = useRouter();
   const dispatch = useDispatch();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(null);
   const menuRef = useRef(null);
   const triggerRef = useRef(null);
   const displayName = user?.userName || user?.name || user?.email || "User";
   const isDashboard = pathname === "/dashboard/user" || pathname === "/dashboard";
+
+  const refreshUnreadCount = useCallback(async () => {
+    if (!user) return;
+    try {
+      const response = await api.get("/api/messages/unread-count");
+      const count = response?.data?.unreadCount;
+      if (Number.isInteger(count) && count >= 0) setUnreadCount(count);
+    } catch (error) {
+      console.warn("[Messages] Could not refresh unread count", {
+        status: error?.response?.status || null,
+        code: error?.code || null,
+      });
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return undefined;
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refreshUnreadCount();
+    };
+    const initialRefreshId = window.setTimeout(refreshWhenVisible, 0);
+    const intervalId = window.setInterval(refreshWhenVisible, 30000);
+    window.addEventListener("messages:unread-count-changed", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
+    return () => {
+      window.clearTimeout(initialRefreshId);
+      window.clearInterval(intervalId);
+      window.removeEventListener("messages:unread-count-changed", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [refreshUnreadCount, user]);
 
   useEffect(() => {
     if (!menuOpen) return undefined;
@@ -83,6 +122,24 @@ export default function UserWorkspaceShell({
       return;
     }
     router.push("/dashboard/user");
+    setMenuOpen(false);
+  };
+
+  const handleShare = () => {
+    if (onShare) {
+      handleAction(onShare);
+      return;
+    }
+    router.push("/dashboard/user");
+    setMenuOpen(false);
+  };
+
+  const handleMessages = () => {
+    if (onMessages) {
+      handleAction(onMessages);
+      return;
+    }
+    router.push("/messages");
     setMenuOpen(false);
   };
 
@@ -141,12 +198,39 @@ export default function UserWorkspaceShell({
           </button>
           <button
             type="button"
+            onClick={handleMessages}
+            aria-current={pathname === "/messages" || activeView === "messages" ? "page" : undefined}
+            className={desktopNavClass(pathname === "/messages" || activeView === "messages")}
+          >
+            <div className="flex flex-1 items-center justify-between gap-3">
+              <span className="flex items-center gap-3">
+                <MessageSquareText size={18} />
+                Messages
+              </span>
+              {unreadCount > 0 ? (
+                <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 text-[10px] font-semibold text-white">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              ) : null}
+            </div>
+          </button>
+          <button
+            type="button"
             onClick={handleLibrary}
             aria-current={isDashboard && activeView === "organize" ? "page" : undefined}
             className={desktopNavClass(isDashboard && activeView === "organize")}
           >
             <FolderOpen size={18} />
             Library
+          </button>
+          <button
+            type="button"
+            onClick={handleShare}
+            aria-current={isDashboard && activeView === "share" ? "page" : undefined}
+            className={desktopNavClass(isDashboard && activeView === "share")}
+          >
+            <Share2 size={18} />
+            Share
           </button>
           <Link
             href="/support"
@@ -263,8 +347,34 @@ export default function UserWorkspaceShell({
                 <span className="flex items-center gap-3"><FileText size={18} />Documents</span>
                 <ChevronRight size={17} className="text-slate-400" />
               </button>
+                <button
+                type="button"
+                onClick={handleMessages}
+                aria-current={pathname === "/messages" || activeView === "messages" ? "page" : undefined}
+                className={`${mobileNavClass} ${pathname === "/messages" || activeView === "messages" ? "bg-blue-50 text-blue-700" : ""}`}
+              >
+                <span className="flex items-center gap-3"><MessageSquareText size={18} />Messages</span>
+                {unreadCount > 0 ? (
+                  <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 text-[10px] font-semibold text-white">
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                ) : (
+                  <ChevronRight size={17} className="text-slate-400" />
+                )}
+              </button>
               <button type="button" onClick={handleLibrary} className={mobileNavClass}>
                 <span className="flex items-center gap-3"><FolderOpen size={18} />Library</span>
+                <ChevronRight size={17} className="text-slate-400" />
+              </button>
+              <button
+                type="button"
+                onClick={handleShare}
+                aria-current={isDashboard && activeView === "share" ? "page" : undefined}
+                className={`${mobileNavClass} ${
+                  isDashboard && activeView === "share" ? "bg-blue-50 text-blue-700" : ""
+                }`}
+              >
+                <span className="flex items-center gap-3"><Share2 size={18} />Share</span>
                 <ChevronRight size={17} className="text-slate-400" />
               </button>
               <Link

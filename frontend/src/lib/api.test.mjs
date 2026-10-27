@@ -1,6 +1,35 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { api } from "./api.js";
+import { api, isAbortError } from "./api.js";
+
+test("requests with separate abort signals are not deduplicated", async () => {
+  const firstController = new AbortController();
+  const secondController = new AbortController();
+  const adapter = (config) =>
+    Promise.resolve({
+      data: "ok",
+      status: 200,
+      statusText: "OK",
+      headers: {},
+      config,
+    });
+
+  const firstRequest = api.get("/api/documents", {
+    params: { page: 1 },
+    signal: firstController.signal,
+    adapter,
+  });
+  const secondRequest = api.get("/api/documents", {
+    params: { page: 1 },
+    signal: secondController.signal,
+    adapter,
+  });
+
+  assert.notEqual(firstRequest, secondRequest);
+  firstController.abort();
+  await assert.rejects(firstRequest, isAbortError);
+  assert.equal((await secondRequest).data, "ok");
+});
 
 test("a protected request refreshes once and retries after an expired access token", async () => {
   const interceptor = api.interceptors.response.handlers[0].rejected;

@@ -3,9 +3,10 @@ import { api } from "../../lib/api.js";
 let authRecovery;
 let lastAuthRecovery = 0;
 
-export function subscribeToDocumentProcessingEvents({ onEvent, onOpen }) {
+export function subscribeToDocumentProcessingEvents({ onEvent, onOpen, ownerId }) {
   const baseUrl = api.defaults.baseURL || window.location.origin;
   const eventUrl = new URL("/api/documents/events", baseUrl);
+  if (ownerId) eventUrl.searchParams.set("ownerId", ownerId);
   const source = new EventSource(eventUrl, { withCredentials: true });
   const receivedEventIds = new Set();
 

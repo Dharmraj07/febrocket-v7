@@ -4,7 +4,7 @@ const crypto = require("node:crypto");
 const jwt = require("jsonwebtoken");
 const config = require("../config");
 const app = require("../app");
-const DocumentLibrary = require("../models/DocumentLibrary");
+const documentLibraryService = require("../services/documentLibraryService");
 const formMappingService = require("../services/formMappingService");
 const formSessionStore = require("../services/formSessionStore");
 
@@ -94,18 +94,17 @@ test("E2E: Complete form-filling workflow", async (t) => {
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
   const token = jwt.sign({ id: mockUserId }, config.jwtAccessSecret);
 
-  const originalFindById = DocumentLibrary.findById;
+  const originalGetUserLibrary = documentLibraryService.getUserLibrary;
   const originalMapFormFields = formMappingService.mapFormFields;
+  let sessionId;
 
-  DocumentLibrary.findById = (id) => ({
-    lean: async () => {
-      const library = createMockLibrary();
-      if (String(library._id) === String(id) && String(library.userId) === String(mockUserId)) {
-        return library;
-      }
-      return null;
-    },
-  });
+  documentLibraryService.getUserLibrary = async ({ libraryId, userId }) => {
+    const library = createMockLibrary();
+    return String(library._id) === String(libraryId) &&
+      String(library.userId) === String(userId)
+      ? library
+      : null;
+  };
 
   formSessionStore.clearForTests?.();
 
@@ -122,12 +121,14 @@ test("E2E: Complete form-filling workflow", async (t) => {
       assert.equal(res.body.success, true);
       assert.equal(res.body.status, "created");
       assert(res.body.sessionId, "Session ID should be returned");
+      sessionId = res.body.sessionId;
     });
 
     // Test 2: Analyze form fields
     await t.test("analyze form fields and extract semantic meanings", async () => {
       const res = await makeRequest(baseUrl, "POST", "/api/forms/analyze", {
-        sessionId: "test-session",
+        libraryId: mockLibraryId,
+        sessionId,
         url: "https://example.gov.in/application",
         fields: [
           {
@@ -165,7 +166,8 @@ test("E2E: Complete form-filling workflow", async (t) => {
     // Test 3: Get form context
     await t.test("retrieve relevant person data for form fields", async () => {
       const res = await makeRequest(baseUrl, "POST", "/api/forms/context", {
-        sessionId: "test-session",
+        libraryId: mockLibraryId,
+        sessionId,
         url: "https://example.gov.in/application",
         fields: [
           {
@@ -249,7 +251,7 @@ test("E2E: Complete form-filling workflow", async (t) => {
     await t.test("resolve form field with user answer", async () => {
       const res = await makeRequest(baseUrl, "POST", "/api/forms/resolve", {
         libraryId: mockLibraryId,
-        sessionId: "test-session-123",
+        sessionId,
         url: "https://example.gov.in/application",
         fieldId: "category-field",
         value: "General",
@@ -264,7 +266,7 @@ test("E2E: Complete form-filling workflow", async (t) => {
     await t.test("record form filling feedback", async () => {
       const res = await makeRequest(baseUrl, "POST", "/api/forms/feedback", {
         libraryId: mockLibraryId,
-        sessionId: "test-session-456",
+        sessionId,
         url: "https://example.gov.in/application",
         results: [
           { fieldId: "field-1", status: "filled" },
@@ -302,7 +304,7 @@ test("E2E: Complete form-filling workflow", async (t) => {
     });
 
   } finally {
-    DocumentLibrary.findById = originalFindById;
+    documentLibraryService.getUserLibrary = originalGetUserLibrary;
     formMappingService.mapFormFields = originalMapFormFields;
     await new Promise((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));

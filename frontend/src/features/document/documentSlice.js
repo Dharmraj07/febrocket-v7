@@ -276,19 +276,22 @@ export const getDocuments = createAsyncThunk(
     {
       page = 1,
       limit = 20,
+      ownerId,
     } = {},
     { rejectWithValue, signal }
   ) => {
     try {
-      let requestedPage = page;
+      let requestedPage = Number(page) || 1;
+      const requestParams = {
+        page: requestedPage,
+        limit,
+      };
+      if (ownerId) requestParams.ownerId = ownerId;
+
       let response = await api.get(
         "/api/documents",
         {
-          params: {
-            page: requestedPage,
-            limit,
-          },
-
+          params: requestParams,
           withCredentials: true,
           signal,
         }
@@ -302,8 +305,13 @@ export const getDocuments = createAsyncThunk(
       const lastPage = Math.max(1, totalPages);
       if (requestedPage > lastPage) {
         requestedPage = lastPage;
+        const retryParams = {
+          page: requestedPage,
+          limit,
+        };
+        if (ownerId) retryParams.ownerId = ownerId;
         response = await api.get("/api/documents", {
-          params: { page: requestedPage, limit },
+          params: retryParams,
           withCredentials: true,
           signal,
         });
@@ -311,6 +319,7 @@ export const getDocuments = createAsyncThunk(
 
       return response.data;
     } catch (error) {
+      if (signal.aborted) throw error;
       return rejectWithValue(
         getErrorPayload(
           error,
@@ -377,9 +386,10 @@ export const getAllUserDocuments = createAsyncThunk(
 
 export const getDocumentLibraries = createAsyncThunk(
   "documents/getDocumentLibraries",
-  async (_, { rejectWithValue, signal }) => {
+  async (ownerId, { rejectWithValue, signal }) => {
     try {
       const response = await api.get("/api/document-library", {
+        params: { ownerId },
         withCredentials: true,
         signal,
       });
@@ -394,11 +404,14 @@ export const getDocumentLibraries = createAsyncThunk(
 
 export const getLibraryDocuments = createAsyncThunk(
   "documents/getLibraryDocuments",
-  async (libraryId, { rejectWithValue, signal }) => {
+  async (argument, { rejectWithValue, signal }) => {
+    const { libraryId, ownerId } = typeof argument === "string"
+      ? { libraryId: argument, ownerId: undefined }
+      : argument;
     try {
       const response = await api.get(
         `/api/document-library/${libraryId}/documents`,
-        { withCredentials: true, signal }
+        { params: { ownerId }, withCredentials: true, signal }
       );
       return {
         library: response.data?.library || null,
@@ -419,11 +432,15 @@ export const getLibraryDocuments = createAsyncThunk(
 export const getDocumentById = createAsyncThunk(
   "documents/getDocumentById",
 
-  async (documentId, { rejectWithValue, signal }) => {
+  async (argument, { rejectWithValue, signal }) => {
+    const { documentId, ownerId } = typeof argument === "string"
+      ? { documentId: argument, ownerId: undefined }
+      : argument;
     try {
       const response = await api.get(
         `/api/documents/${documentId}`,
         {
+          params: { ownerId },
           withCredentials: true,
           signal,
         }
@@ -448,11 +465,15 @@ export const getDocumentById = createAsyncThunk(
 export const previewDocument = createAsyncThunk(
   "documents/previewDocument",
 
-  async (documentId, { rejectWithValue, signal }) => {
+  async (argument, { rejectWithValue, signal }) => {
+    const { documentId, ownerId } = typeof argument === "string"
+      ? { documentId: argument, ownerId: undefined }
+      : argument;
     try {
       const response = await api.get(
         `/api/documents/${documentId}/preview`,
         {
+          params: { ownerId },
           responseType: "blob",
           withCredentials: true,
           signal,
@@ -478,11 +499,15 @@ export const previewDocument = createAsyncThunk(
 export const downloadDocument = createAsyncThunk(
   "documents/downloadDocument",
 
-  async (documentId, { rejectWithValue, signal }) => {
+  async (argument, { rejectWithValue, signal }) => {
+    const { documentId, ownerId } = typeof argument === "string"
+      ? { documentId: argument, ownerId: undefined }
+      : argument;
     try {
       const response = await api.get(
         `/api/documents/${documentId}/download`,
         {
+          params: { ownerId },
           responseType: "blob",
           withCredentials: true,
           signal,
@@ -840,12 +865,16 @@ export const deleteAdminDocument = createAsyncThunk(
 
 export const retryDocumentProcessing = createAsyncThunk(
   "documents/retryDocumentProcessing",
-  async ({ documentId, admin = false }, { rejectWithValue }) => {
+  async ({ documentId, ownerId, admin = false }, { rejectWithValue }) => {
     try {
       const path = admin
         ? `/api/documents/admin/${documentId}/retry`
         : `/api/documents/${documentId}/retry`;
-      const response = await api.post(path, {}, { withCredentials: true });
+      const response = await api.post(
+        path,
+        {},
+        { params: { ownerId }, withCredentials: true },
+      );
       return response.data?.document || null;
     } catch (error) {
       return rejectWithValue(getErrorPayload(error, "Could not retry document processing."));
@@ -859,12 +888,16 @@ export const retryDocumentProcessing = createAsyncThunk(
 
 export const updateDocumentExtractedData = createAsyncThunk(
   "documents/updateDocumentExtractedData",
-  async ({ documentId, data, admin = false }, { rejectWithValue }) => {
+  async ({ documentId, data, ownerId, admin = false }, { rejectWithValue }) => {
     try {
       const path = admin
         ? `/api/documents/admin/${documentId}/data`
         : `/api/documents/${documentId}/data`;
-      const response = await api.put(path, { data }, { withCredentials: true });
+      const response = await api.put(
+        path,
+        { data },
+        { params: { ownerId }, withCredentials: true },
+      );
       return response.data?.document || null;
     } catch (error) {
       return rejectWithValue(getErrorPayload(error, "Could not save extracted information."));
@@ -924,6 +957,26 @@ const documentSlice = createSlice({
       state.selectedDocument = null;
       state.selectedDocumentLoading = false;
       state.selectedDocumentRequestId = null;
+    },
+
+    clearWorkspaceDocuments: (state) => {
+      state.documents = [];
+      state.documentsRequestId = null;
+      state.selectedDocument = null;
+      state.selectedDocumentLoading = false;
+      state.selectedDocumentRequestId = null;
+      state.documentsPagination = initialState.documentsPagination;
+      state.documentLibrariesRequestId = null;
+      state.documentLibraries = [];
+      state.documentLibrariesLoading = false;
+      state.libraryDocuments = [];
+      state.selectedLibrary = null;
+      state.libraryDocumentsLoading = false;
+      state.libraryDocumentsRequestId = null;
+      state.libraryError = null;
+      state.isLoading = false;
+      state.error = null;
+      state.message = null;
     },
 
     clearAdminDocuments: (state) => {
@@ -1035,9 +1088,11 @@ const documentSlice = createSlice({
         state.documentsRequestId = null;
         state.isLoading = false;
 
-        state.error = action.payload || {
-          message: action.error.message || "Failed to fetch documents.",
-        };
+        state.error = action.meta.aborted
+          ? null
+          : action.payload || {
+              message: action.error.message || "Failed to fetch documents.",
+            };
       })
 
       .addCase(getAllUserDocuments.pending, (state) => {
@@ -1642,6 +1697,7 @@ export const {
   clearDownloadBlob,
 
   clearDocuments,
+  clearWorkspaceDocuments,
   clearAdminDocuments,
 
   resetDocumentState,

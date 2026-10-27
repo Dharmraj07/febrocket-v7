@@ -1,5 +1,6 @@
 const express = require("express");
 const authMiddleware = require("../middleware/authMiddleware");
+const resolveWorkspaceOwner = require("../middleware/resolveWorkspaceOwner");
 const {
   analyzeForm,
   createFormSession,
@@ -11,11 +12,13 @@ const {
 
 const router = express.Router();
 
-router.post("/session", authMiddleware(), createFormSession);
-router.post("/analyze", authMiddleware(), analyzeForm);
-router.post("/context", authMiddleware(), getFormContext);
-router.post("/map", authMiddleware(), mapFormFields);
-router.post("/resolve", authMiddleware(), resolveFormField);
-router.post("/feedback", authMiddleware(), recordFormFeedback);
+router.use(authMiddleware(), resolveWorkspaceOwner);
+
+router.post("/session", createFormSession);
+router.post("/analyze", analyzeForm);
+router.post("/context", getFormContext);
+router.post("/map", mapFormFields);
+router.post("/resolve", resolveFormField);
+router.post("/feedback", recordFormFeedback);
 
 module.exports = router;

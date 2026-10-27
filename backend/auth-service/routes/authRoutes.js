@@ -4,7 +4,12 @@ const config = require("../config");
 const authController = require("../controllers/authController");
 const authMiddleware = require("../middleware/authMiddleware");
 const passportAuthenticate = require("../middleware/passportAuthenticate");
-const { authLimiter, passwordLimiter } = require("../middleware/rateLimiters");
+const {
+  authLimiter,
+  passwordLimiter,
+  shareCodeLimiter,
+  shareVerificationLimiter,
+} = require("../middleware/rateLimiters");
 const authValidators = require("../validation/authValidators");
 
 const router = express.Router();
@@ -119,6 +124,35 @@ router.put(
   authController.changePassword,
 );
 router.delete("/account", authMiddleware(), authController.deleteAccount);
+
+// Sharing actions. Only /share/connect accepts a JSON body: { "code": "A7K2" }.
+router.post(
+  "/share/code",
+  authMiddleware(),
+  shareCodeLimiter,
+  authController.generateShareCode,
+);
+router.post(
+  "/share/connect",
+  authMiddleware(),
+  shareVerificationLimiter,
+  authController.connectWithShareCode,
+);
+router.get(
+  "/share/connection",
+  authMiddleware(),
+  authController.getCurrentConnection,
+);
+router.delete(
+  "/share/connection",
+  authMiddleware(),
+  authController.disconnectConnection,
+);
+router.delete(
+  "/share/code",
+  authMiddleware(),
+  authController.cancelShareCode,
+);
 
 // Admin user management.
 router.get("/admin/users", authMiddleware({ adminOnly: true }), authController.getAllUsers);

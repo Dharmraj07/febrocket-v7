@@ -12,6 +12,7 @@ const {
   invalidateUserCache,
   setSessionState,
 } = require("../utils/redisStore");
+const shareService = require("../service/shareService");
 
 const {
   issueSession,
@@ -169,6 +170,61 @@ exports.deleteAccount = async (req, res) => {
   return sendSuccess(res, 200, "Account deleted successfully.");
 };
 
+exports.generateShareCode = async (req, res) => {
+  const { code, expiresAt } = await shareService.generateShareCodeForUser(req.user.id);
+  return res.status(200).json({
+    success: true,
+    message: "Sharing code generated successfully",
+    data: {
+      code,
+      expiresAt: expiresAt.toISOString(),
+    },
+  });
+};
+
+exports.connectWithShareCode = async (req, res) => {
+  const code = typeof req.body?.code === "string" ? req.body.code : "";
+  const normalized = shareService.normalizeShareCode(code);
+  if (!normalized) {
+    throw new AppError("Invalid or expired sharing code.", 400);
+  }
+
+  const { user, role } = await shareService.connectWithCode(req.user.id, normalized);
+  return res.status(200).json({
+    success: true,
+    message: "Connected successfully",
+    data: {
+      connected: true,
+      user,
+      role,
+    },
+  });
+};
+
+exports.getCurrentConnection = async (req, res) => {
+  const payload = await shareService.getConnectionForUser(req.user.id);
+  return res.status(200).json({
+    success: true,
+    data: payload,
+  });
+};
+
+exports.disconnectConnection = async (req, res) => {
+  await shareService.disconnectConnectionForUser(req.user.id);
+  return res.status(200).json({
+    success: true,
+    message: "Disconnected successfully",
+  });
+};
+
+exports.cancelShareCode = async (req, res) => {
+  await shareService.clearShareCodeFields(req.user.id);
+  return res.status(200).json({
+    success: true,
+    message: "Sharing code cancelled successfully",
+  });
+};
+
 
 // ============================================================
 // ADMIN HANDLERS
@@ -187,6 +243,21 @@ exports.getAllUsers = async (req, res) => {
         ],
       }
     : {};
+
+  if (req.query.ids !== undefined) {
+    const ids =
+      typeof req.query.ids === "string"
+        ? req.query.ids.split(",").filter(Boolean)
+        : [];
+    if (
+      !ids.length ||
+      ids.length > 100 ||
+      ids.some((id) => !mongoose.isValidObjectId(id))
+    ) {
+      throw new AppError("Invalid user ID list.", 400);
+    }
+    filter._id = { $in: ids };
+  }
 
   const [users, totalUsers] = await Promise.all([
     User.find(filter)
@@ -318,6 +389,11 @@ module.exports = {
   changePassword: exports.changePassword,
   editProfile: exports.editProfile,
   deleteAccount: exports.deleteAccount,
+  generateShareCode: exports.generateShareCode,
+  connectWithShareCode: exports.connectWithShareCode,
+  getCurrentConnection: exports.getCurrentConnection,
+  disconnectConnection: exports.disconnectConnection,
+  cancelShareCode: exports.cancelShareCode,
   isBrowserExtensionOrigin,
   getAllUsers: exports.getAllUsers,
   getUserById: exports.getUserById,
